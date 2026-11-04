@@ -1,0 +1,17 @@
+{
+  "name": "PHP2Shell (CVE-2026-109618 / 109619), three-week retrospective",
+  "tags": ["PHP2Shell"],
+  "terms": ["CVE-2026-109618", "PHP2Shell"],
+  "days": 21,
+  "db": "php2shell.sqlite",
+  "report": "php2shell_report.html",
+  "pause_seconds": 0.4,
+  "sources": {
+    "mastodon": {"enabled": true, "instances": ["mastodon.social", "fosstodon.org", "infosec.exchange"], "max_pages": 10},
+    "bluesky":  {"enabled": false},
+    "x":        {"enabled": true, "max_posts_per_tag": 1500, "budget_usd": 30.0, "query_extra": "-is:retweet", "archive": true, "sample_per_day": 60, "sample_windows_per_day": 6}
+  },
+  "alert": {"window_minutes": 30, "uses": 200, "ratio": 10, "uses_per_account": 5, "min_uses": 10},
+  "burst": {"window_minutes": 10, "minimum": 3},
+  "discover": {"auto": false, "max_new_per_cycle": 1, "max_tags": 12, "min_accounts": 3, "min_posts": 3, "show": 25}
+}

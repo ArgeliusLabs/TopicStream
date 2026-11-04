@@ -1,0 +1,8 @@
+.env
+*.sqlite
+*.sqlite-journal
+*_report.html
+config.json
+config.*.json
+__pycache__/
+*.pyc

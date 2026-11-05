@@ -4,9 +4,24 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from topicstream.sources import Mastodon, Post, matches, tags_in, strip_html, iso, parse_time
-from topicstream.store import Store
+from topicstream.store import Store, BudgetExceeded
+from topicstream.identity import account_key
+from contextlib import contextmanager
+from unittest.mock import patch
 from topicstream import analyze as A, report as R
 from topicstream.__main__ import import_csv
+
+@contextmanager
+def stored_directory():
+    """Close all fixture connections before Windows removes the temporary folder."""
+    stores=[]; original=Store.__init__
+    def open_store(self,*args,**kwargs):
+        original(self,*args,**kwargs); stores.append(self)
+    with tempfile.TemporaryDirectory() as folder:
+        with patch.object(Store,'__init__',open_store):
+            try: yield folder
+            finally:
+                for store in stores: store.close()
 
 NOW = datetime(2026, 11, 4, 20, 0, tzinfo=timezone.utc)
 
@@ -37,11 +52,11 @@ class ParsingTests(unittest.TestCase):
         p2 = [mast_status(3, 'c', 'old #osint', (NOW - timedelta(days=9)).strftime('%Y-%m-%dT%H:%M:%S.000Z'), ['osint'])]
         m = Mastodon(['ex.org'], FakeHttp([p1, p2]), log=lambda *a: None)
         posts = m.posts(['osint'], [], NOW - timedelta(days=7), NOW)
-        self.assertEqual([p.author for p in posts], ['a', 'b'])          # the reblog of post 1 de-duplicated on URI, the 9-day-old post cut by `since`
+        self.assertEqual([p.author for p in posts], ['a', 'b', 'a'])  # boost is a distinct actor action; old posts are excluded
         self.assertEqual(posts[0].links, ['https://news.example/x']); self.assertEqual(posts[0].matched, ['#osint'])
         rows = m.tag_days(['osint'], NOW); self.assertEqual(len(rows), 7); self.assertEqual(rows[0][4], 100); self.assertEqual(rows[0][5], 10)
     def test_store_roundtrip_and_refresh(self):
-        with tempfile.TemporaryDirectory() as d:
+        with stored_directory() as d:
             s = Store(Path(d) / 'x.sqlite')
             p = Post(source='mastodon', instance='ex.org', post_id='u1', created_utc=iso(NOW), author='a', text='hi #osint', likes=1, matched=['#osint'], tags=['osint'], collected_utc=iso(NOW))
             self.assertEqual(s.add_posts([p]), 1); p.likes = 5; self.assertEqual(s.add_posts([p]), 0)
@@ -63,13 +78,13 @@ class AnalysisTests(unittest.TestCase):
         co = A.cooccurrence(self.posts, '#osint'); self.assertEqual(co[0]['tag'], '#campaign'); self.assertEqual(co[0]['accounts'], 6); self.assertAlmostEqual(co[0]['share'], 0.6)
         self.assertEqual(A.top_domains(self.posts, '#osint')[0], dict(domain='site.example', posts=60, accounts=6))
         b = A.bursts(self.posts, 10, 3); self.assertEqual(len(b), 2); self.assertEqual([len(x['accounts']) for x in b], [6, 6])   # 20 minutes of posting, two 10-minute windows
-        acc = A.top_accounts(self.posts, '#osint', now=NOW); self.assertEqual(acc[0]['uses'], 10); self.assertEqual(acc[0]['age_days'], 5)
+        acc = A.top_accounts(self.posts, '#osint', now=NOW); self.assertEqual(acc[0]['uses'], 10); self.assertEqual(acc[0]['age_days'], 2)
     def test_report_renders(self):
-        with tempfile.TemporaryDirectory() as d:
+        with stored_directory() as d:
             s = Store(Path(d) / 'x.sqlite')
             s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW), author_created_utc=p['author_created_utc'], author_followers=p['author_followers'], likes=p['likes']) for i, p in enumerate(self.posts)])
             html = R.render(s, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
-            self.assertIn('ALERT', html); self.assertIn('#campaign', html); self.assertIn('site.example', html); self.assertNotIn('Traceback', html)
+            self.assertIn('Retrospective activity rule', html); self.assertIn('#campaign', html); self.assertIn('site.example', html); self.assertNotIn('Traceback', html)
 
 # Point TOPICSTREAM_SAMPLE_CSV at a posts export with the import-csv column names to run the end-to-end analysis test.
 CIAP = Path(os.environ.get('TOPICSTREAM_SAMPLE_CSV', Path(__file__).resolve().parents[2] / 'capstone/release/Evidence/1_Platform/exports/ciap_posts_2026-02-01_to_2026-03-08.csv'))
@@ -77,7 +92,7 @@ CIAP = Path(os.environ.get('TOPICSTREAM_SAMPLE_CSV', Path(__file__).resolve().pa
 class ExerciseDataTests(unittest.TestCase):
     """The course exercise's dashboard is this code over that data: the alert fires on 3 February, the nine pushes show up as bursts."""
     def test_day6_export(self):
-        with tempfile.TemporaryDirectory() as d:
+        with stored_directory() as d:
             cfg = dict(tags=['TelukRawah', 'TelukRawa', 'BuktiIndependen'], terms=[], days=40, db=str(Path(d) / 'c.sqlite'), report=str(Path(d) / 'r.html'), name='Teluk Rawa')
             import_csv(cfg, str(CIAP), 'ciap', log=lambda *a: None)
             s = Store(cfg['db']); posts = s.posts()
@@ -87,14 +102,14 @@ class ExerciseDataTests(unittest.TestCase):
             self.assertTrue(v['start'].startswith('2026-02-05'), v['start'])                                                                       # the busiest push is the third
             b = A.bursts(posts, 10, 5); self.assertGreaterEqual(len(b), 8)        # the nine pushes, give or take the spelling split
             co = A.cooccurrence(posts, '#telukrawah'); self.assertIn('#sekawandeal', [c['tag'] for c in co])
-            html = R.render(s, cfg, now=datetime(2026, 3, 9, tzinfo=timezone.utc)); self.assertIn('ALERT', html)
+            html = R.render(s, cfg, now=datetime(2026, 3, 9, tzinfo=timezone.utc)); self.assertIn('Retrospective activity rule', html)
             self.assertIn('Imported export (ciap)', html); self.assertNotIn('<b>Mastodon.</b>', html)                              # platform notes follow what the database holds
             self.assertIn('Export: 2026-02-01 to 2026-03-08', html); self.assertIn('Export depth', html); self.assertNotIn('max_pages', html)
             prof = CIAP.parent / 'ciap_account_profiles_2026-03-09.csv'
             if prof.exists():
                 cfg2 = dict(cfg, db=str(Path(d) / 'c2.sqlite')); import_csv(cfg2, str(CIAP), 'ciap', log=lambda *a: None, accounts=str(prof))
                 rows = {r['account']: r for r in A.account_features(Store(cfg2['db']).posts(), now=datetime(2026, 3, 9, tzinfo=timezone.utc))}
-                self.assertIsNotNone(rows['nurani_pesisir']['age_days']); self.assertIn('dormant_then_active', rows['nurani_pesisir']['signals'])
+                self.assertIsNotNone(rows['nurani_pesisir']['age_days']); self.assertIn('low_lifetime_activity', rows['nurani_pesisir']['signals'])
                 self.assertEqual(rows['warga_rawa22']['reply_to'], 'ombak_merah')                                                  # in_reply_to resolved from a post id to its author
 
 if __name__ == '__main__': unittest.main()
@@ -109,7 +124,7 @@ def x_search_page(ids, next_token=None, rt=False):
                            public_metrics=dict(retweet_count=1, like_count=2, reply_count=0),
                            entities=dict(hashtags=[dict(tag='Election2026')], urls=[dict(expanded_url=f'https://news.example/{i}', unwound_url=f'https://news.example/{i}'), dict(expanded_url='https://x.com/u/status/1')]),
                            referenced_tweets=[dict(type='retweeted', id='9')] if rt else []) for i in ids],
-                includes=dict(users=[dict(id=f'u{k}', username=f'user{k}', created_at='2026-10-01T00:00:00.000Z', public_metrics=dict(followers_count=10 * k)) for k in range(3)]),
+                includes=dict(users=[dict(id=f'u{k}', username=f'user{k}', created_at='2026-10-01T00:00:00.000Z', public_metrics=dict(followers_count=10 * k)) for k in sorted({i % 3 for i in ids})]),
                 meta=dict(newest_id=str(max(ids)), oldest_id=str(min(ids)), result_count=len(ids), **({'next_token': next_token} if next_token else {})))
 
 class XFakeHttp:
@@ -136,32 +151,32 @@ class XTests(unittest.TestCase):
         self.assertEqual(len(posts), 4); self.assertEqual(sum(p.is_repost for p in posts), 2)
         self.assertEqual(posts[0].links, ['https://news.example/1001']); self.assertEqual(posts[0].author, 'user2'); self.assertEqual(posts[0].author_followers, 20)
         self.assertEqual(posts[0].matched, ['#election2026']); self.assertEqual(saved, {'#election2026': '1004'})
-        self.assertAlmostEqual(x.spent, 2 * 0.005 + 4 * 0.005)
+        self.assertAlmostEqual(x.spent, 2 * 0.005 + 4 * 0.015)
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[2]).query); self.assertEqual(q['query'], ['#Election2026 -is:retweet']); self.assertIn('start_time', q); self.assertNotIn('since_id', q)
-    def test_incremental_uses_since_id_not_start_time(self):
+    def test_legacy_newest_id_does_not_skip_unretrieved_history(self):
         http = XFakeHttp(); x = X(http, log=lambda *a: None, max_posts_per_tag=10, budget_usd=5, bearer='tok', cursors={'#election2026': '1004'})
         posts = x.posts(['Election2026'], [], NOW - timedelta(days=7), NOW)
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[0]).query); self.assertEqual(q['since_id'], ['1004']); self.assertNotIn('start_time', q)
-        self.assertEqual([p.post_id for p in posts], ['2001', '2002']); self.assertEqual(x.cursors['#election2026'], '2002')
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[0]).query); self.assertNotIn('since_id', q); self.assertIn('start_time', q)
+        self.assertEqual([p.post_id for p in posts], ['1001', '1002', '1003', '1004']); self.assertEqual(x.cursors['#election2026'], '1004')
     def test_budget_counts_what_was_already_spent(self):
-        x = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.0, bearer='tok', spent_before=0.80)
-        self.assertAlmostEqual(x.estimate(['a']), 0.01 + 0.5)
-        with self.assertRaises(SystemExit): x.posts(['a'], [], NOW - timedelta(days=7), NOW)
-        x2 = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.0, bearer='tok', spent_before=0.0)
+        x = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.6, bearer='tok', spent_before=0.80)
+        self.assertAlmostEqual(x.estimate(['a']), 0.01 + 1.5)
+        with self.assertRaises(BudgetExceeded): x.posts(['a'], [], NOW - timedelta(days=7), NOW)
+        x2 = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.6, bearer='tok', spent_before=0.0)
         x2.posts(['a'], [], NOW - timedelta(days=7), NOW)   # within budget: runs
     def test_dotenv(self):
-        with tempfile.TemporaryDirectory() as d:
+        with stored_directory() as d:
             (Path(d) / '.env').write_text('# comment\nX_BEARER_TOKEN="abc123"\nBSKY_HANDLE=me.bsky.social\n')
             os.environ.pop('X_BEARER_TOKEN', None); os.environ['BSKY_HANDLE'] = 'keep-me'
             self.assertTrue(load_dotenv([Path(d) / '.env'])); self.assertEqual(os.environ['X_BEARER_TOKEN'], 'abc123'); self.assertEqual(os.environ['BSKY_HANDLE'], 'keep-me')
             os.environ.pop('X_BEARER_TOKEN'); os.environ.pop('BSKY_HANDLE')
     def test_report_with_x_counts(self):
-        with tempfile.TemporaryDirectory() as d:
-            s = Store(Path(d) / 'x.sqlite'); s.add_counts('x', [('#election2026', f'2026-11-0{1 + i % 7}T{i % 24:02d}:00:00Z', 10 + i) for i in range(50)], iso(NOW))
+        with stored_directory() as d:
+            s = Store(Path(d) / 'x.sqlite'); s.add_counts('x', [('#election2026', f'2026-11-0{1 + i % 7}T{i % 24:02d}:00:00Z', 10 + i) for i in range(50)], iso(NOW),X(None).query_hash('election2026'))
             s.add_posts([Post(source='x', instance='api.x.com', post_id='1', created_utc=iso(NOW), author='a', text='x #election2026', matched=['#election2026'], tags=['election2026'], collected_utc=iso(NOW))])
-            rid = s.start_run(iso(NOW)); s.finish_run(rid, iso(NOW), {'x': {'spent_usd': 0.123}})
+            rid = s.reserve_request('x','test','q',0.123,1,iso(NOW)); s.settle_request(rid,0.123,iso(NOW))
             self.assertAlmostEqual(s.spent('x'), 0.123)
-            html = R.render(s, dict(name='t', tags=['election2026'], days=7, alert={}), now=NOW)
+            html = R.render(s, dict(name='t', tags=['election2026'], days=7, alert={},sources={'x':{'enabled':True}}), now=NOW)
             self.assertIn('X volume per hour', html); self.assertIn('$0.12', html)
 
 
@@ -169,7 +184,7 @@ class TermsAndDiscoveryTests(unittest.TestCase):
     def test_x_term_is_a_quoted_phrase_and_counts_both(self):
         http = XFakeHttp(); x = X(http, log=lambda *a: None, max_posts_per_tag=4, budget_usd=5, bearer='tok', query_extra='lang:en')
         self.assertEqual(x.query('Teluk Rawa', 'term'), '"Teluk Rawa" lang:en'); self.assertEqual(x.query('OSINT'), '#OSINT lang:en')
-        self.assertAlmostEqual(x.estimate(['a'], ['b c']), 2 * (0.01 + 0.02))
+        self.assertAlmostEqual(x.estimate(['a'], ['b c']), 2 * (0.01 + 0.15))
         rows = x.tag_days(['Election2026'], NOW, NOW - timedelta(days=7), terms=['bilge water'])
         self.assertEqual({r[2] for r in rows}, {'#election2026', 'bilge water'})
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[2]).query); self.assertEqual(q['query'], ['"bilge water" lang:en'])
@@ -188,10 +203,10 @@ class SamplingTests(unittest.TestCase):
         self.assertGreaterEqual(len({q['start_time'][0][:10] for q in qs}), 7)                       # every day covered
         self.assertEqual(sorted({q['start_time'][0][11:13] for q in qs}), ['00', '04', '08', '12', '16', '20'])   # six 4-hour windows from midnight
         self.assertTrue(all('search/all' in u for u in http.calls))
-        self.assertGreaterEqual(len(posts), 7 * 6 * 4); self.assertAlmostEqual(x.spent, len(posts) * 0.005)
-        self.assertAlmostEqual(x.estimate(['a'], [], 21), (1 + (1 + 21 * 24 // 500)) * 0.01 + min(10000, 10 * 6 * 22) * 0.005)
+        self.assertGreaterEqual(len(posts), 7 * 6 * 4); self.assertAlmostEqual(x.spent, len(posts) * 0.015)
+        self.assertAlmostEqual(x.estimate(['a'], [], 21), (1 + (1 + 21 * 24 // 500)) * 0.01 + min(10000, 10 * 6 * 22) * 0.015)
     def test_velocity_from_counts(self):
-        counts = [dict(tag='#t', start_utc=f'2026-10-{14 + i // 24:02d}T{i % 24:02d}:00:00Z', uses=5) for i in range(200)]
+        counts = [dict(source='x', tag='#t', start_utc=f'2026-10-{14 + i // 24:02d}T{i % 24:02d}:00:00Z', uses=5) for i in range(200)]
         counts[170]['uses'] = 784; counts[150]['uses'] = 120
         v = A.velocity_from_counts(counts, '#t', 200, 10, 10)
         self.assertEqual(v['uses'], 784); self.assertEqual(v['first_trip']['uses'], 120); self.assertTrue(any('average hour' in r for r in v['first_trip']['reasons']))
@@ -199,26 +214,22 @@ class SamplingTests(unittest.TestCase):
 
 class CollectWiringTests(unittest.TestCase):
     """collect() end to end against the recorded X shapes: meter recorded, cursor saved, spend accumulated, budget enforced."""
-    def test_collect_records_meter_cursor_and_spend(self):
-        import topicstream.sources as S
+    def test_collect_records_durable_pages_and_spend(self):
         from topicstream.__main__ import collect
-        fake = XFakeHttp(); orig = S.Http.get
-        S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
-        try:
-            with tempfile.TemporaryDirectory() as d:
-                os.environ['X_BEARER_TOKEN'] = 'tok'
-                cfg = dict(tags=['Election2026'], terms=[], days=7, db=str(Path(d) / 'c.sqlite'), report=str(Path(d) / 'r.html'), pause_seconds=0,
-                           sources=dict(mastodon=dict(enabled=False), bluesky=dict(enabled=False), x=dict(enabled=True, max_posts_per_tag=4, budget_usd=0.07, query_extra='', counts_every_minutes=60)), alert={})
-                store = collect(cfg, log=lambda *a: None); n = json.loads(store.runs()[-1]['notes'])
-                self.assertEqual(n['x_meter_before'], 2851); self.assertEqual(n['x']['posts'], 4); self.assertAlmostEqual(n['x']['spent_usd'], 0.01 + 0.02)   # counts (day + hour) + 4 reads
-                self.assertEqual(store.cursors('x'), {'#election2026': '1004'}); self.assertIn('#election2026', store.cursors('x-counts'))
-                collect(cfg, log=lambda *a: None); n2 = json.loads(store.runs()[-1]['notes'])
-                self.assertEqual(n2['x']['posts'], 2); self.assertAlmostEqual(n2['x']['spent_usd'], 0.01); self.assertAlmostEqual(store.spent('x'), 0.04)   # counts kept (bought minutes ago), 2 new reads
-                collect(cfg, log=lambda *a: None); n3 = json.loads(store.runs()[-1]['notes']); self.assertNotIn('error', n3['x'])   # 0.04 + worst case 0.03 = 0.07, allowed
-                collect(cfg, log=lambda *a: None); n4 = json.loads(store.runs()[-1]['notes'])
-                self.assertIn('error', n4['x']); self.assertIn('budget_usd', n4['x']['error']); self.assertNotIn('spent_usd', n4['x'])   # 0.05 + 0.03 > 0.07: nothing bought
-        finally:
-            S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
+        fake=XFakeHttp()
+        with stored_directory() as d, patch.dict(os.environ,{'X_BEARER_TOKEN':'tok'}), patch('topicstream.sources.Http.get',lambda self,url,headers=None,tries=4:fake.get(url,headers)):
+            cfg=dict(tags=['Election2026'],terms=[],days=7,start_utc='2026-11-01T00:00:00Z',end_utc='2026-11-05T00:00:00Z',db=str(Path(d)/'c.sqlite'),sources={'mastodon':{'enabled':False},'bluesky':{'enabled':False},'x':{'enabled':True,'max_posts_per_tag':4,'budget_usd':0.25}},alert={})
+            store=collect(cfg,log=lambda *a:None)
+            self.assertEqual(len(store.posts()),4)
+            self.assertAlmostEqual(store.spent(),0.07)
+            self.assertEqual(store.coverage()[0]['status'],'exhausted')
+            self.assertEqual(len(store.ledger()),4)
+            state=json.loads(store.db.execute("SELECT state FROM checkpoints WHERE source='x-search'").fetchone()[0])
+            self.assertEqual(state['newest'],'1004')
+            self.assertEqual(state['status'],'exhausted')
+            collect(cfg,log=lambda *a:None).close()
+            self.assertAlmostEqual(store.spent(),0.07)  # same fixed interval is not re-read
+
 
 class CountsThrottleTests(unittest.TestCase):
     def test_counts_not_rebought_inside_the_interval(self):
@@ -230,7 +241,7 @@ class CountsThrottleTests(unittest.TestCase):
 
 class ImportJoinTests(unittest.TestCase):
     def test_accounts_join_and_reply_resolution(self):
-        with tempfile.TemporaryDirectory() as d:
+        with stored_directory() as d:
             posts = Path(d) / 'p.csv'; prof = Path(d) / 'a.csv'
             posts.write_text('post_id,handle,timestamp_utc,content_type,lang,text,link,in_reply_to,likes,reposts,replies\n'
                              'P-1,alice,2026-02-03 02:47:00,post,en,hello #t,https://e.example/x,,1,0,0\n'
@@ -252,7 +263,7 @@ class PeakTests(unittest.TestCase):
         from topicstream.__main__ import collect, peak, buy_windows, top_hours
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with tempfile.TemporaryDirectory() as d:
+            with stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d); logs = []
                 store = collect(cfg, log=logs.append)                                   # stores the hourly counts
                 top = top_hours(store, ['#election2026'], 2); self.assertEqual(len(top), 2); self.assertTrue(top[0][2] >= top[1][2])
@@ -264,16 +275,16 @@ class PeakTests(unittest.TestCase):
                 self.assertIn('start_time', q); self.assertIn('end_time', q); self.assertNotIn('since_id', q)
                 self.assertEqual(buy_windows(cfg, store, top, log=logs.append), 0)        # already complete: nothing re-bought
                 self.assertTrue(any('peak' in json.loads(r['notes'] or '{}') for r in store.runs()))
-                html = R.render(store, cfg, now=NOW); self.assertIn('Hours read complete on X', html); self.assertIn('First 10 minutes', html)
+                html = R.render(store, cfg, now=NOW); self.assertIn('Purchased X windows', html); self.assertIn('exhausted', html)
         finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
     def test_windows_section_before_any_peak(self):
         import topicstream.sources as S
         from topicstream.__main__ import collect
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with tempfile.TemporaryDirectory() as d:
+            with stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d); store = collect(cfg, log=lambda m: None)
-                html = R.render(store, cfg, now=NOW); self.assertIn('No hour has been read complete yet', html); self.assertIn('to read in full', html)
+                html = R.render(store, cfg, now=NOW); self.assertIn('No purchased windows', html); self.assertIn('query', html)
                 s2 = Store(':memory:')                                                  # an import-only database: no X counts series at all
                 html = R.render(s2, dict(name='t', tags=['x'], days=7, alert={}), now=NOW); self.assertIn('This database has no X counts series', html)
         finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
@@ -282,22 +293,22 @@ class PeakTests(unittest.TestCase):
         from topicstream.__main__ import collect, buy_windows, top_hours
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with tempfile.TemporaryDirectory() as d:
+            with stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d, budget_usd=0.05); logs = []
                 store = collect(cfg, log=logs.append); top = top_hours(store, ['#election2026'], 1)
-                self.assertEqual(buy_windows(cfg, store, top, log=logs.append), 0); self.assertTrue(any('over budget' in l for l in logs))
+                self.assertEqual(buy_windows(cfg, store, top, log=logs.append), 0); self.assertTrue(any('budget_usd' in l for l in logs))
         finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
     def test_on_alert_mode_reads_nothing_until_a_rule_trips(self):
         import topicstream.sources as S
         from topicstream.__main__ import collect
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with tempfile.TemporaryDirectory() as d:
+            with stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d, read_mode='on_alert'); logs = []
                 store = collect(cfg, log=logs.append)
                 n = json.loads(store.runs()[0]['notes']); self.assertEqual(n['x']['posts'], 0); self.assertAlmostEqual(n['x']['spent_usd'], 0.01)   # counts only
                 # the fake's hourly series is flat (100..267 per hour, average ~183): no hour is 10x the average, none >= 200 by the first-trip rule? 267 >= 200 trips
-                self.assertTrue(len(store.windows()) >= 1); self.assertTrue(any('buying' in l for l in logs))
+                self.assertTrue(len(store.windows()) >= 1); self.assertTrue(any('window(s)' in l for l in logs))
         finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
 
 class CoordinationLayerTests(unittest.TestCase):
@@ -315,16 +326,16 @@ class CoordinationLayerTests(unittest.TestCase):
     def test_account_features_and_signals(self):
         P = [self.mk('replybot', i * 7, f'@x reply number {i} about the thing', reply=True, created_days=10, followers=20) for i in range(12)]
         P += [self.mk('poly', i * 90, f'post {i}', lang=['en', 'ja', 'es'][i % 3], created_days=800, followers=5000, likes=30, total=50) for i in range(9)]
-        rows = {r['account']: r for r in A.account_features(P, now=NOW, burst_accounts={'poly'})}
-        self.assertEqual(set(rows['replybot']['signals']), {'replies', 'no_audience', 'young', 'office_hours'})
-        self.assertEqual(set(rows['poly']['signals']), {'multilingual', 'dormant_then_active', 'co_posted'})
+        rows = {r['account']: r for r in A.account_features(P, now=NOW, burst_accounts={'x:handle:poly'})}
+        self.assertEqual(set(rows['replybot']['signals']), {'replies', 'no_audience', 'young'})
+        self.assertEqual(set(rows['poly']['signals']), {'multilingual', 'low_lifetime_activity', 'co_posted'})
         self.assertEqual(rows['replybot']['reply_to'], 'bigaccount')
     def test_hour_profile_band(self):
         P = [self.mk('a', 60 * h, 'x') for h in [1, 2, 3, 4, 5, 6, 7, 8, 20]]   # NOW is 20:00 UTC, so minutes shift the hour
         prof = A.hour_profile(P); self.assertEqual(sum(prof['hours']), 9); self.assertGreaterEqual(prof['band_share'], 8 / 9 - 1e-9)
     def test_creation_clusters(self):
         P = [self.mk(f'c{i}', i, 'x', created_days=100) for i in range(5)] + [self.mk(f'o{i}', i, 'x', created_days=100 + 30 * i) for i in range(1, 30)]
-        cc = A.creation_clusters(P, {f'c{i}' for i in range(5)}); self.assertEqual(len(cc), 1); self.assertEqual(cc[0]['subset'], 5); self.assertGreater(cc[0]['lift'], 3)
+        cc = A.creation_clusters(P, {f'x:handle:c{i}' for i in range(5)}); self.assertEqual(len(cc), 1); self.assertEqual(cc[0]['subset'], 5); self.assertGreater(cc[0]['lift'], 3)
     def test_cross_platform_and_infrastructure(self):
         P = [self.mk('a', 0, 'a long enough identical message to be matched across the two platforms here', source='x'),
              self.mk('b@m', 5, 'a long enough identical message to be matched across the two platforms here', source='mastodon'),
@@ -348,5 +359,5 @@ class CoordinationLayerTests(unittest.TestCase):
     def test_leading_edge(self):
         P = [self.mk(f's{i}', i, 'seed', ['https://seed.example/x']) for i in range(3)] + [self.mk(f'o{i}', 20 + i, 'organic') for i in range(10)]
         for p in P: p['matched'] = ['#t']
-        le = A.leading_edge(P, dict(tag='#t', start_utc=iso(NOW), end_utc=iso(NOW + timedelta(hours=1))), 10)
-        self.assertEqual(le['edge_accounts'], ['s0', 's1', 's2']); self.assertEqual(le['posts'], 13); self.assertEqual(le['edge_links'][0][0], 'seed.example')
+        le = A.leading_edge(P, dict(source='x', tag='#t', start_utc=iso(NOW), end_utc=iso(NOW + timedelta(hours=1))), 10)
+        self.assertEqual(le['edge_accounts'], ['x:handle:s0', 'x:handle:s1', 'x:handle:s2']); self.assertEqual(le['posts'], 13); self.assertEqual(le['edge_links'][0][0], 'seed.example')

@@ -1,23 +1,16 @@
-"""Collectors. Each one turns a platform's own JSON into the same Post shape and, where the platform offers it,
-its own per-day counts (TagDay). Read these top to bottom: the comments say what each endpoint costs and what it
-leaves out, which is most of what you need to know before you trust a number from any social-listening dashboard.
+"""Provider adapters normalize public records into Post.
 
-Platform facts as of November 2026 (check before you budget; they change):
-  Mastodon   GET /api/v1/tags/{name}            free, no auth: seven days of {day, uses, accounts} as that server saw them
-             GET /api/v1/timelines/tag/{name}   free, no auth on most servers (some return 401/422: they require a token)
-             Each server only knows what federated to it. Poll several and de-duplicate on the post URI.
-  Bluesky    app.bsky.feed.searchPosts          free, but since 2025 the public AppView refuses it without a session,
-             so sign in with an app password. Search returns original posts only: reposts are not "uses" here.
-  X          GET /2/tweets/counts/recent        $0.005 per request, up to 7 days, minute/hour/day buckets (the cheap half)
-             GET /2/tweets/search/recent        $0.005 per post returned (the expensive half), 7 days, 100 per page
-             Pay-per-use since Feb 2026; the old Free/Basic/Pro tiers are gone. 3M reads a month before Enterprise.
+Mastodon visibility is per server; Bluesky uses a bsky.social app-password
+session and bounded search. X prices and request admission live in xsource.py.
+Provider access, request shapes, and pricing must be verified operationally.
 """
 import json, re, time, html as H, os, urllib.request, urllib.parse, urllib.error
+from html.parser import HTMLParser
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 
-UA = 'topicstream/0.1 (+research monitor; standard-library urllib)'   # say who you are; do not pretend to be a browser
+UA = 'topicstream/0.3 (+research monitor; standard-library urllib)'   # say who you are; do not pretend to be a browser
 
 @dataclass
 class Post:
@@ -25,6 +18,7 @@ class Post:
     author_id: str = None; author_created_utc: str = None; author_followers: int = None; lang: str = None
     is_repost: bool = False; reposts: int = None; likes: int = None; replies: int = None; url: str = None
     is_reply: bool = False; reply_to: str = None; author_posts: int = None   # reply_to = the account replied to, when the platform says
+    author_uri: str = None; reference_type: str = None; referenced_post_id: str = None; original_author: str = None
     matched: list = field(default_factory=list); tags: list = field(default_factory=list); links: list = field(default_factory=list)
     collected_utc: str = ''
     @property
@@ -33,9 +27,20 @@ class Post:
 def utcnow(): return datetime.now(timezone.utc).replace(microsecond=0)
 def iso(dt): return dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 def parse_time(s):
-    s = s.replace('Z', '+00:00')
+    s = s.strip().replace('Z', '+00:00')
     if '.' in s: s = re.sub(r'\.\d+', '', s)
-    return datetime.fromisoformat(s).astimezone(timezone.utc)
+    dt = datetime.fromisoformat(s)
+    return (dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt).astimezone(timezone.utc)
+
+class LinkParser(HTMLParser):
+    def __init__(self): super().__init__(); self.links = []
+    def handle_starttag(self, tag, attrs):
+        if tag == 'a':
+            url = dict(attrs).get('href', '')
+            if url.startswith(('https://', 'http://')): self.links.append(url)
+
+def html_links(value):
+    parser = LinkParser(); parser.feed(value or ''); return parser.links
 def strip_html(s):
     s = re.sub(r'<br\s*/?>|</p>', '\n', s); s = re.sub(r'<[^>]+>', '', s); return H.unescape(s).strip()
 def domain_of(url):
@@ -53,11 +58,19 @@ def queries(tags, terms):
 
 class Http:
     """Polite urllib wrapper: one request at a time, a pause between them, retries on 429/5xx with the server's Retry-After."""
-    def __init__(self, pause=1.0, log=print): self.pause = pause; self.log = log; self.last = 0; self.requests = 0
+    def __init__(self, pause=1.0, log=print, cancelled=None):
+        self.pause = pause; self.log = log; self.last = 0; self.requests = 0
+        self.cancelled=cancelled or (lambda:False)
+    def _wait(self,seconds):
+        end=time.monotonic()+seconds
+        while time.monotonic()<end:
+            if self.cancelled(): raise RuntimeError('Collection cancelled')
+            time.sleep(min(.25,max(0,end-time.monotonic())))
     def get(self, url, headers=None, tries=4):
         for attempt in range(tries):
+            if self.cancelled(): raise RuntimeError('Collection cancelled')
             wait = self.pause - (time.time() - self.last)
-            if wait > 0: time.sleep(wait)
+            if wait > 0: self._wait(wait)
             req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept': 'application/json', **(headers or {})})
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
@@ -66,17 +79,19 @@ class Http:
             except urllib.error.HTTPError as e:
                 self.last = time.time(); self.requests += 1
                 if e.code in (429, 500, 502, 503, 504) and attempt < tries - 1:
-                    delay = float(e.headers.get('Retry-After') or 2 ** (attempt + 1)); self.log(f'    {e.code} from {domain_of(url)}, waiting {delay:.0f}s'); time.sleep(delay); continue
+                    delay = min(60,float(e.headers.get('Retry-After') or 2 ** (attempt + 1))); self.log(f'    {e.code} from {domain_of(url)}, waiting {delay:.0f}s'); self._wait(delay); continue
                 raise
     def post_json(self, url, body, headers=None):
+        if self.cancelled(): raise RuntimeError('Collection cancelled')
         req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST', headers={'User-Agent': UA, 'Content-Type': 'application/json', 'Accept': 'application/json', **(headers or {})})
         with urllib.request.urlopen(req, timeout=30) as r: self.requests += 1; return json.loads(r.read().decode('utf-8'))
 
 # ----------------------------------------------------------------------------------------------------------------------
 class Mastodon:
     name = 'mastodon'
-    def __init__(self, instances, http, log=print, max_pages=10):
+    def __init__(self, instances, http, log=print, max_pages=10, on_page=None):
         self.instances = instances; self.http = http; self.log = log; self.max_pages = max_pages
+        self.on_page=on_page or (lambda posts:None)
 
     def tag_days(self, tags, now):
         """The platform's own numbers: seven days of uses and originating accounts per tag, per server."""
@@ -106,23 +121,31 @@ class Mastodon:
                     except urllib.error.HTTPError as e:
                         self.log(f'  {inst} timelines/tag/{tag}: HTTP {e.code}' + (' (this server wants a token for public timelines)' if e.code in (401, 422) else '')); break
                     if not j: break
+                    page_start=len(out)
                     pages += 1
                     for s in j:
                         created = parse_time(s['created_at'])
                         if created < since: j = None; break
                         src = s['reblog'] or s
-                        uri = src.get('uri') or src.get('url') or s['id']
+                        original_uri = src.get('uri') or src.get('url') or s['id']
+                        # A boost is a separate action by the wrapper's actor at its own time.
+                        uri = (s.get('uri') or s.get('url') or f'https://{inst}/statuses/{s["id"]}') if s.get('reblog') else original_uri
                         if uri in seen: continue
                         seen.add(uri); got += 1
                         text = strip_html(src.get('content', ''))
-                        a = src['account']
+                        a = s['account']
                         out.append(Post(source=self.name, instance=inst, post_id=uri, created_utc=iso(created), author=a['acct'], author_id=str(a['id']),
+                                        author_uri=a.get('uri') or a.get('url'),
+                                        reference_type='repost' if s.get('reblog') else ('reply' if src.get('in_reply_to_id') else None),
+                                        referenced_post_id=original_uri if s.get('reblog') else (f'https://{inst}/statuses/{src["in_reply_to_id"]}' if src.get('in_reply_to_id') else None),
+                                        original_author=src['account'].get('acct') if s.get('reblog') else None,
                                         author_created_utc=iso(parse_time(a['created_at'])) if a.get('created_at') else None, author_followers=a.get('followers_count'),
                                         author_posts=a.get('statuses_count'), is_reply=bool(src.get('in_reply_to_id')), reply_to=(src.get('mentions') or [{}])[0].get('acct') if src.get('in_reply_to_id') else None,
                                         text=text, lang=src.get('language'), is_repost=bool(s.get('reblog')), reposts=src.get('reblogs_count'), likes=src.get('favourites_count'),
                                         replies=src.get('replies_count'), url=src.get('url'), matched=matches(text + ' ' + ' '.join('#' + t['name'] for t in src.get('tags', [])), tags, terms),
                                         tags=sorted({t['name'].lower() for t in src.get('tags', [])} | set(tags_in(text))),
-                                        links=[c['url'] for c in [src.get('card')] if c and c.get('url')] + re.findall(r'https?://\S+', text), collected_utc=iso(now)))
+                                        links=sorted(set([c['url'] for c in [src.get('card')] if c and c.get('url')] + html_links(src.get('content','')) + re.findall(r'https?://\S+', text))), collected_utc=iso(now)))
+                    self.on_page(out[page_start:])
                     if j is None: break
                     max_id = j[-1]['id']
                 self.log(f'  {inst} #{tag}: {got} posts, {pages} pages')
@@ -134,9 +157,10 @@ class Bluesky:
     Free. Search returns original posts; a repost is a separate record the search does not return, so 'uses' here
     undercounts relative to Mastodon and X. The report says so."""
     name = 'bluesky'
-    def __init__(self, http, log=print, max_pages=10, handle=None, app_password=None):
+    def __init__(self, http, log=print, max_pages=10, handle=None, app_password=None, on_page=None, until=None):
         self.http = http; self.log = log; self.max_pages = max_pages
         self.handle = handle or os.environ.get('BSKY_HANDLE'); self.pw = app_password or os.environ.get('BSKY_APP_PASSWORD'); self.jwt = None
+        self.on_page=on_page or (lambda posts:None); self.until=until
     def available(self): return bool(self.handle and self.pw)
     def login(self):
         j = self.http.post_json('https://bsky.social/xrpc/com.atproto.server.createSession', {'identifier': self.handle, 'password': self.pw})
@@ -149,191 +173,46 @@ class Bluesky:
         for label, kind, raw in queries(tags, terms):
             cursor = None; pages = 0; got = 0; tag = raw
             while pages < self.max_pages:
-                q = {('tag' if kind == 'tag' else 'q'): raw, 'sort': 'latest', 'limit': 100, 'since': iso(since)}
+                q = {'q': '#'+raw if kind=='tag' else raw, 'sort': 'latest', 'limit': 100, 'since': iso(since)}
+                if kind=='tag': q['tag']=raw
+                if self.until: q['until']=iso(self.until)
                 if cursor: q['cursor'] = cursor
                 j, _ = self.http.get('https://bsky.social/xrpc/app.bsky.feed.searchPosts?' + urllib.parse.urlencode(q), headers={'Authorization': 'Bearer ' + self.jwt})
                 pages += 1
+                page_start=len(out)
                 for p in j.get('posts', []):
                     rec = p['record']; text = rec.get('text', ''); a = p['author']
-                    facet_tags = [f['features'][0]['tag'] for f in rec.get('facets', []) for _ in [0] if f['features'][0]['$type'].endswith('#tag')]
-                    facet_links = [f['features'][0]['uri'] for f in rec.get('facets', []) if f['features'][0]['$type'].endswith('#link')]
+                    features = [ft for f in rec.get('facets', []) for ft in f.get('features', [])]
+                    facet_tags = [f['tag'] for f in features if f.get('$type','').endswith('#tag') and f.get('tag')]
+                    facet_links = [f['uri'] for f in features if f.get('$type','').endswith('#link') and f.get('uri')]
                     emb = p.get('embed') or {}; ext = emb.get('external', {}).get('uri') if isinstance(emb, dict) else None
                     out.append(Post(source=self.name, instance='bsky.social', post_id=p['uri'], created_utc=iso(parse_time(rec['createdAt'])), author=a['handle'], author_id=a['did'],
                                     author_created_utc=iso(parse_time(a['createdAt'])) if a.get('createdAt') else None, text=text, lang=(rec.get('langs') or [None])[0],
                                     is_reply=bool(rec.get('reply')), author_posts=a.get('postsCount'),
+                                    reference_type='reply' if rec.get('reply') else None, referenced_post_id=(rec.get('reply') or {}).get('parent',{}).get('uri'),
                                     reposts=p.get('repostCount'), likes=p.get('likeCount'), replies=p.get('replyCount'),
                                     url=f"https://bsky.app/profile/{a['handle']}/post/{p['uri'].rsplit('/', 1)[-1]}", matched=matches(text, tags, terms),
                                     tags=sorted({t.lower() for t in facet_tags} | set(tags_in(text))), links=facet_links + ([ext] if ext else []), collected_utc=iso(now)))
                     got += 1
+                self.on_page(out[page_start:])
                 cursor = j.get('cursor')
                 if not cursor or not j.get('posts'): break
             self.log(f'  bluesky {label}: {got} posts, {pages} pages (hitsTotal {j.get("hitsTotal", "?")})')
         return out
 
 # ----------------------------------------------------------------------------------------------------------------------
-class X:
-    """Needs X_BEARER_TOKEN (an app's OAuth 2.0 app-only bearer token from the developer console).
-    Pay-per-use since February 2026: $0.005 per post returned, $0.005 per counts/recent request, $0.010 per counts/all request.
-    What keeps the bill honest here:
-      - counts first: one request per tag per granularity gives the whole 7-day volume series, for half a cent;
-      - incremental reads: after the first run, search uses since_id so only posts newer than the last one stored are billed;
-      - caps: max_posts_per_tag per run, and budget_usd across ALL runs stored in the database, not just this one;
-      - query_extra: e.g. "-is:retweet lang:en" roughly halves what comes back on a busy tag.
-    With `archive: true` and `days` > 7 it uses the full-archive endpoints (search/all, counts/all), which pay-per-use can call."""
-    name = 'x'
-    COUNT_RECENT, COUNT_ALL, POST_READ = 0.005, 0.010, 0.005
-    FIELDS = 'created_at,entities,public_metrics,referenced_tweets,lang,author_id,in_reply_to_user_id'
-    def __init__(self, http, log=print, max_posts_per_tag=200, budget_usd=2.0, bearer=None, query_extra='', archive=False, spent_before=0.0, cursors=None, save_cursor=None, sample_per_day=0, sample_windows_per_day=6, counts_every_minutes=60, counts_fetched=None, save_counts_fetched=None):
-        self.http = http; self.log = log; self.max_posts = max_posts_per_tag; self.budget = budget_usd
-        self.bearer = bearer or os.environ.get('X_BEARER_TOKEN'); self.spent = 0.0; self.spent_before = spent_before
-        self.query_extra = query_extra.strip(); self.archive = archive; self.cursors = cursors or {}; self.save_cursor = save_cursor or (lambda tag, newest: None)
-        self.hourly = []; self.fields_param = 'tweet.fields'; self.sample_per_day = int(sample_per_day or 0); self.sample_windows = max(1, int(sample_windows_per_day or 1))
-        self.counts_every = int(counts_every_minutes or 0); self.counts_fetched = counts_fetched or {}; self.save_counts_fetched = save_counts_fetched or (lambda label, when: None)
-    def available(self): return bool(self.bearer)
-    def _h(self): return {'Authorization': 'Bearer ' + self.bearer}
-    def query(self, raw, kind='tag'):
-        """The X search query for one tracked thing: a hashtag as #name, a phrase quoted so word order counts, plus query_extra."""
-        core = f'#{raw}' if kind == 'tag' else f'"{raw}"'
-        return (core + ' ' + self.query_extra).strip()
-    def _ep(self, kind):
-        base = 'https://api.x.com/2/tweets/'
-        return base + ('search/all' if self.archive else 'search/recent') if kind == 'search' else base + ('counts/all' if self.archive else 'counts/recent')
-    def count_price(self): return self.COUNT_ALL if self.archive else self.COUNT_RECENT
-    def estimate(self, tags, terms=(), days=7):
-        """Worst case for one run: counts requests per query (day and hour; the hour series paginates on long windows), then reads
-        up to max_posts per query, or sample_per_day x days when sampling, whichever is smaller."""
-        reads = min(self.max_posts, max(10, self.sample_per_day // self.sample_windows) * self.sample_windows * (days + 1)) if self.sample_per_day else self.max_posts
-        count_pages = 1 + (1 + days * 24 // 500)
-        return (len(tags) + len(terms)) * (count_pages * self.count_price() + reads * self.POST_READ)
-    def _get(self, url, q):
-        try: return self.http.get(url + '?' + urllib.parse.urlencode(q), headers=self._h())
-        except urllib.error.HTTPError as e:
-            body = e.read().decode('utf-8', 'replace')[:300]
-            if e.code == 400 and self.fields_param == 'tweet.fields' and 'fields' in body:   # the docs now call it post.fields; accept either
-                self.fields_param = 'post.fields'; q['post.fields'] = q.pop('tweet.fields', self.FIELDS); return self._get(url, q)
-            raise RuntimeError(f'x {e.code}: {body}') from None
-    def _counts(self, raw, granularity, since, kind='tag'):
-        """All buckets for the query at this granularity; follows next_token (each page is one billed request)."""
-        rows = []; token = None
-        while True:
-            q = {'query': self.query(raw, kind), 'granularity': granularity}
-            if self.archive: q['start_time'] = iso(since)
-            if token: q['next_token'] = token
-            j, _ = self._get(self._ep('counts'), q); self.spent += self.count_price()
-            for b in j.get('data', []): rows.append((b['start'], b['end'], int(b.get('post_count', b.get('tweet_count', 0)))))
-            token = j.get('meta', {}).get('next_token')
-            if not token: break
-        return rows
-    def tag_days(self, tags, now, since=None, terms=()):
-        """Buys the day and hour series for every query, unless a series younger than counts_every_minutes is already stored
-        (watch mode would otherwise re-buy the same curve every cycle: a cent a term a run adds up to a dollar a term a day at 15 minutes)."""
-        if not self.available(): return []
-        since = since or (now - timedelta(days=7)); rows = []
-        for label, kind, raw in queries(tags, terms):
-            last = self.counts_fetched.get(label)
-            if last and (now - parse_time(last)).total_seconds() < self.counts_every * 60:
-                self.log(f'  x {self.query(raw, kind)}: counts bought {int((now - parse_time(last)).total_seconds() // 60)} min ago, kept (counts_every_minutes {self.counts_every})'); continue
-            for start, end, n in self._counts(raw, 'day', since, kind): rows.append((self.name, 'api.x.com', label, start[:10], n, None, iso(now)))   # counts give no account number
-            for start, end, n in self._counts(raw, 'hour', since, kind): self.hourly.append((label, start, n))
-            total = sum(n for t, _, n in self.hourly if t == label); self.save_counts_fetched(label, iso(now))
-            self.log(f'  x {self.query(raw, kind)}: {total:,} posts in the window by the counts endpoint (${self.spent:.3f} so far)')
-        return rows
-    def posts(self, tags, terms, since, now):
-        if not self.available(): self.log('  x: skipped (set X_BEARER_TOKEN in the environment or in .env)'); return []
-        est = self.estimate(tags, terms, max(1, (now - since).days))
-        if self.spent_before + est > self.budget:
-            raise SystemExit(f'x: skipped. ${self.spent_before:.2f} already spent in this database and this run could add up to ${est:.2f}; budget_usd is {self.budget:.2f}. Raise budget_usd or lower max_posts_per_tag.')
-        out = []
-        if self.sample_per_day: return self._sample(tags, terms, since, now)
-        for label, kind, raw in queries(tags, terms):
-            tag = label; got = 0; token = None; newest = self.cursors.get(tag); mode = f'since_id {newest}' if newest else f'start_time {iso(since)}'
-            while got < self.max_posts:
-                q = {'query': self.query(raw, kind), 'max_results': max(10, min(100 if not self.archive else 500, self.max_posts - got)),
-                     self.fields_param: self.FIELDS, 'expansions': 'author_id', 'user.fields': 'created_at,public_metrics,username'}
-                if newest: q['since_id'] = newest            # since_id and start_time are mutually exclusive
-                else: q['start_time'] = iso(since)
-                if token: q['next_token'] = token
-                j, _ = self._get(self._ep('search'), q)
-                data = j.get('data', []); self.spent += len(data) * self.POST_READ
-                out.extend(self._parse(j, tags, terms, now)); got += len(data)
-                meta = j.get('meta', {})
-                if meta.get('newest_id') and (not self.cursors.get(tag) or int(meta['newest_id']) > int(self.cursors[tag])): self.cursors[tag] = meta['newest_id']
-                token = meta.get('next_token')
-                if not token or not data: break
-            if self.cursors.get(tag): self.save_cursor(tag, self.cursors[tag])
-            self.log(f'  x {self.query(raw, kind)}: {got} posts read ({mode}), ${self.spent:.2f} this run, ${self.spent_before + self.spent:.2f} in this database')
-        return out
-    def _parse(self, j, tags, terms, now):
-        users = {u['id']: u for u in j.get('includes', {}).get('users', [])}; out = []
-        for t in j.get('data', []):
-            u = users.get(t['author_id'], {}); ent = t.get('entities', {}); pm = t.get('public_metrics', {})
-            is_rt = any(r.get('type') == 'retweeted' for r in t.get('referenced_tweets', []))
-            is_reply = any(r.get('type') == 'replied_to' for r in t.get('referenced_tweets', [])) or bool(t.get('in_reply_to_user_id'))
-            reply_to = users.get(t.get('in_reply_to_user_id') or '', {}).get('username') or (t['text'].split()[0].lstrip('@') if is_reply and t['text'].startswith('@') else None)
-            links = [x.get('unwound_url') or x.get('expanded_url') for x in ent.get('urls', []) if not re.match(r'https://(twitter|x)\.com/', x.get('expanded_url') or '')]
-            out.append(Post(source=self.name, instance='api.x.com', post_id=t['id'], created_utc=iso(parse_time(t['created_at'])), author=u.get('username', t['author_id']), author_id=t['author_id'],
-                            author_created_utc=iso(parse_time(u['created_at'])) if u.get('created_at') else None, author_followers=(u.get('public_metrics') or {}).get('followers_count'),
-                            author_posts=(u.get('public_metrics') or {}).get('tweet_count'), is_reply=is_reply, reply_to=reply_to,
-                            text=t['text'], lang=t.get('lang'), is_repost=is_rt, reposts=pm.get('retweet_count'), likes=pm.get('like_count'), replies=pm.get('reply_count'),
-                            url=f"https://x.com/{u.get('username', 'i')}/status/{t['id']}", matched=matches(t['text'], tags, terms),
-                            tags=sorted({h['tag'].lower() for h in ent.get('hashtags', [])} | set(tags_in(t['text']))), links=[l for l in links if l], collected_utc=iso(now)))
-        return out
-    def _sample(self, tags, terms, since, now):
-        """Stratified sample: each UTC day is split into sample_windows_per_day equal windows (six by default, four hours each) and
-        the newest posts in each window are read, sample_per_day / windows of them (never fewer than 10, the API minimum), so a
-        three-week event is covered end to end and across the clock instead of the last two days swallowing the cap. Ignores since_id.
-        Timing analysis on a sample is still approximate; the counts endpoint is the complete record and the report uses it for X velocity."""
-        out = []; day = timedelta(days=1); per_window = max(10, self.sample_per_day // self.sample_windows); step = day / self.sample_windows
-        for label, kind, raw in queries(tags, terms):
-            got = 0; start = since.replace(hour=0, minute=0, second=0, microsecond=0)
-            while start < now and got < self.max_posts:
-                end = min(start + step, now - timedelta(seconds=15))
-                if end > start:
-                    want = min(per_window, self.max_posts - got); token = None; w_got = 0
-                    while w_got < want:
-                        q = {'query': self.query(raw, kind), 'max_results': max(10, min(100 if not self.archive else 500, want - w_got)), 'start_time': iso(start), 'end_time': iso(end),
-                             self.fields_param: self.FIELDS, 'expansions': 'author_id', 'user.fields': 'created_at,public_metrics,username'}
-                        if token: q['next_token'] = token
-                        j, _ = self._get(self._ep('search'), q); data = j.get('data', []); self.spent += len(data) * self.POST_READ
-                        out.extend(self._parse(j, tags, terms, now)); w_got += len(data); token = j.get('meta', {}).get('next_token')
-                        if not token or not data: break
-                    got += w_got
-                start += step
-            self.log(f'  x {self.query(raw, kind)}: {got} posts sampled, {per_window} per {24 // self.sample_windows}-hour window, ${self.spent:.2f} this run, ${self.spent_before + self.spent:.2f} in this database')
-        return out
-    def read_window(self, raw, kind, start, end, tags, terms, now, expected=None, cap=5000):
-        """Read EVERY post for one query between start and end (datetimes): the complete record of one hour, where the burst and
-        account rules mean something. Costs about expected x $0.005; the caller checks the budget first. Uses the archive endpoint
-        on its own when the window is older than the seven days recent search covers."""
-        archive_before = self.archive
-        if (now - start).days >= 7: self.archive = True
-        out = []; token = None
-        try:
-            while len(out) < cap:
-                q = {'query': self.query(raw, kind), 'max_results': 100 if not self.archive else 500, 'start_time': iso(start), 'end_time': iso(end),
-                     self.fields_param: self.FIELDS, 'expansions': 'author_id', 'user.fields': 'created_at,public_metrics,username'}
-                if token: q['next_token'] = token
-                j, _ = self._get(self._ep('search'), q); data = j.get('data', []); self.spent += len(data) * self.POST_READ
-                out.extend(self._parse(j, tags, terms, now)); token = j.get('meta', {}).get('next_token')
-                if not token or not data: break
-        finally:
-            self.archive = archive_before
-        self.log(f'  x {self.query(raw, kind)}: window {iso(start)} to {iso(end)} read complete: {len(out)} posts' + (f' (counts said {expected:,})' if expected else '') + f', ${self.spent:.2f} this run')
-        return out
-
-    def usage(self):
-        """GET /2/usage/tweets: what X says the project has consumed this billing cycle (project-level, not per run)."""
-        j, _ = self._get('https://api.x.com/2/usage/tweets', {}); return j
+from .xsource import X
 
 def build_sources(cfg, http, log):
     s = cfg.get('sources', {}); out = []
-    if s.get('mastodon', {}).get('enabled', True): out.append(Mastodon(s.get('mastodon', {}).get('instances', ['mastodon.social']), http, log, s.get('mastodon', {}).get('max_pages', 10)))
-    if s.get('bluesky', {}).get('enabled', True): out.append(Bluesky(http, log, s.get('bluesky', {}).get('max_pages', 10)))
+    if s.get('mastodon', {}).get('enabled', True): out.append(Mastodon(s.get('mastodon', {}).get('instances', ['mastodon.social']), http, log, s.get('mastodon', {}).get('max_pages', 10),on_page=cfg.get('_on_page')))
+    if s.get('bluesky', {}).get('enabled', True): out.append(Bluesky(http, log, s.get('bluesky', {}).get('max_pages', 10),on_page=cfg.get('_on_page'),until=cfg.get('_until')))
     if s.get('x', {}).get('enabled', True):
         x = s.get('x', {})
         out.append(X(http, log, x.get('max_posts_per_tag', 200), x.get('budget_usd', 2.0), query_extra=x.get('query_extra', ''), archive=bool(x.get('archive', False)),
                      spent_before=x.get('_spent_before', 0.0), cursors=x.get('_cursors'), save_cursor=x.get('_save_cursor'), sample_per_day=x.get('sample_per_day', 0), sample_windows_per_day=x.get('sample_windows_per_day', 6),
-                     counts_every_minutes=x.get('counts_every_minutes', 60), counts_fetched=x.get('_counts_fetched'), save_counts_fetched=x.get('_save_counts_fetched')))
+                     counts_every_minutes=x.get('counts_every_minutes', 60), counts_fetched=x.get('_counts_fetched'), save_counts_fetched=x.get('_save_counts_fetched'),
+                     store=x.get('_store'), prices=x.get('prices'), cancelled=cfg.get('_cancelled'), until=cfg.get('_until'), scope_key=cfg.get('_scope_key','')))
     return out
 
 def load_dotenv(paths):

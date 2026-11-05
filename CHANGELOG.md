@@ -1,5 +1,15 @@
 # Changes
 
+## 0.3.0 (November 2026)
+
+- Local browser workspace: editable topic plans, saved cases, source status, imports, jobs/cancellation, group graph/timeline/evidence, reviews, JSON exports, and standalone reports.
+- Recurring text/link/amplification groups with independent episodes, transparent pair evidence, popularity weighting, and deterministic timing comparisons. Coordination remains separate from authenticity.
+- X search budgets include expanded author profiles as well as posts; pricing checked against public X documentation on November 5, 2026.
+- Transactional X pages/checkpoints, request-level budget reservations, crash-persistent uncertain charges, query-version isolation, and explicit partial/exhausted/unverified coverage. Free-source pages are saved as they arrive.
+- Stable platform-scoped identities, distinct Mastodon boost actors, canonical links, event-time account age, full-interval report scope, later-episode alerts, and removal of unsupported suspicion/causality labels.
+- Immutable analysis inputs, review history, migration guidance, conservative budget documentation, synthetic regression tests, and Windows/Linux CI.
+- Earlier descriptions of complete windows, costs, or suspicion flags below are historical; use the current methodology and cost-control documentation.
+
 ## 0.2.5 (November 2026)
 
 - The posting-hour chart compares the flagged accounts' band with the share of all posts in that same band (it used to show all posts' own tightest band, which is a different number).

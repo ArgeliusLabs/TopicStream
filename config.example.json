@@ -1,18 +1,81 @@
 {
   "name": "OSINT community",
-  "tags": ["osint", "infosec"],
+  "tags": [
+    "osint",
+    "infosec"
+  ],
   "terms": [],
   "days": 7,
   "db": "topicstream.sqlite",
   "report": "topicstream_report.html",
   "pause_seconds": 1.0,
   "sources": {
-    "mastodon": {"enabled": true, "instances": ["mastodon.social", "infosec.exchange", "fosstodon.org", "mstdn.social"], "max_pages": 10},
-    "bluesky":  {"enabled": true, "max_pages": 10},
-    "x":        {"enabled": true, "max_posts_per_tag": 200, "budget_usd": 2.0, "query_extra": "-is:retweet", "archive": false, "counts_every_minutes": 60, "read_mode": "always"}
+    "mastodon": {
+      "enabled": true,
+      "instances": [
+        "mastodon.social",
+        "infosec.exchange",
+        "fosstodon.org",
+        "mstdn.social"
+      ],
+      "max_pages": 10
+    },
+    "bluesky": {
+      "enabled": true,
+      "max_pages": 10
+    },
+    "x": {
+      "enabled": false,
+      "max_posts_per_tag": 200,
+      "budget_usd": 2.0,
+      "query_extra": "",
+      "archive": false,
+      "counts_every_minutes": 60,
+      "read_mode": "always",
+      "prices": {
+        "post_read": 0.005,
+        "user_read": 0.010,
+        "counts_recent": 0.005,
+        "counts_all": 0.01
+      }
+    }
   },
-  "alert": {"window_minutes": 30, "uses": 200, "ratio": 10, "uses_per_account": 5, "min_uses": 10},
-  "burst": {"window_minutes": 10, "minimum": 3, "paraphrase_window_minutes": 60, "paraphrase_threshold": 0.35, "cross_platform_minutes": 30},
-  "accounts": {"min_posts": 3, "top": 40},
-  "discover": {"auto": false, "max_new_per_cycle": 1, "max_tags": 12, "min_accounts": 3, "min_posts": 3, "show": 25}
+  "alert": {
+    "window_minutes": 30,
+    "uses": 200,
+    "ratio": 10,
+    "uses_per_account": 5,
+    "min_uses": 10
+  },
+  "burst": {
+    "window_minutes": 10,
+    "minimum": 3,
+    "paraphrase_window_minutes": 60,
+    "paraphrase_threshold": 0.35,
+    "cross_platform_minutes": 30
+  },
+  "accounts": {
+    "min_posts": 3,
+    "top": 40
+  },
+  "discover": {
+    "auto": false,
+    "max_new_per_cycle": 1,
+    "max_tags": 12,
+    "min_accounts": 3,
+    "min_posts": 3,
+    "show": 25
+  },
+  "exclude_terms": [],
+  "languages": [],
+  "detector": {
+    "window_minutes": 10,
+    "episode_gap_minutes": 60,
+    "min_episodes": 3,
+    "min_days": 2,
+    "min_accounts": 3,
+    "max_event_accounts": 100,
+    "max_posts": 20000,
+    "baseline_repeats": 5
+  }
 }

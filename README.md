@@ -4,6 +4,19 @@ A local investigation workspace for finding recurring coordination in public soc
 
 **Coordination is not proof of inauthenticity.** TopicStream identifies behavioral leads. It does not determine who controls an account, whether an identity is deceptive, or who sponsors an operation. An empty result with limited coverage is reported as **insufficient evidence**.
 
+## Live example: Singapore haze
+
+[Read the public sample report](docs/examples/singapore-haze/report.md) from our November 5, 2026 X pilot. It shows the search scope, observed activity by day, detector settings, interpretation, coverage gaps, and estimated collection cost.
+
+| Observed result | Value |
+| --- | --- |
+| Distinct posts retrieved | 285 |
+| Posts analyzed / accounts | 284 / 238 |
+| Brief repost clusters / recurring groups | 4 / 0 |
+| Local estimated cost | About US$4.02 initially; US$7.98 including a verification reread |
+
+**No strong recurring coordination was detected in this sample at the default thresholds.** This is a worked investigation example, not evidence that the wider topic is free of CIB or a benchmark of detection accuracy. The public report contains aggregate results; individual posts and account evidence remain local. See the [technical pilot notes](docs/live-pilot-2026-11-05.md) for collection fixes and billing caveats. To explore supporting evidence for a detected group without credentials or charges, use the synthetic example below.
+
 ## Start the workspace
 
 Requires Python 3.9 or later. Runtime dependencies: Python standard library only. From this repository:

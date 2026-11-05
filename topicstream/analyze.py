@@ -259,6 +259,15 @@ def hour_profile(posts):
     n = sum(h) or 1; best = max(((sum(h[(s + k) % 24] for k in range(8)) / n, s) for s in range(24)))
     return dict(hours=h, band_share=best[0], band_start=best[1], band_end=(best[1] + 8) % 24)
 
+def hour_comparison(posts, subset_accounts):
+    """Compare both populations in the subset's same eight-hour UTC band."""
+    selected=[p for p in posts if account_key(p) in subset_accounts]
+    if not selected: return None
+    profile=hour_profile(selected)
+    same_band=sum(1 for p in posts if (int(p['created_utc'][11:13])-profile['band_start'])%24<8)/(len(posts) or 1)
+    return dict(profile,all_share=same_band,all_hours=hour_profile(posts)['hours'],selected_posts=len(selected))
+
+
 def account_features(posts, now=None, windows=(), burst_accounts=(), min_posts=3, top=40):
     """One row per account with the facts a coordination analyst asks for first, and the signals those facts trip.
     Signals (each a plain rule, thresholds in the code): replies, no_audience, young, low_lifetime_activity, observed_hour_concentration, one_domain,

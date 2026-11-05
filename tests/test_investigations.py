@@ -221,6 +221,14 @@ class LedgerAndResumeTests(unittest.TestCase):
 
 
 class DetectionTests(unittest.TestCase):
+    def test_hour_comparison_uses_same_band_for_both_populations(self):
+        early=[dict(row('early',1,i),created_utc=iso(NOW.replace(hour=1)+timedelta(minutes=i))) for i in range(10)]
+        late=[dict(row('late',1,i),created_utc=iso(NOW.replace(hour=13)+timedelta(minutes=i))) for i in range(90)]
+        comparison=A.hour_comparison(early+late,{'x:id:early'})
+        self.assertEqual(comparison['band_share'],1)
+        self.assertEqual(comparison['all_share'],.1)
+        self.assertEqual(A.hour_profile(early+late)['band_share'],.9)
+
     def test_recurring_group_retains_edge_and_post_evidence(self):
         result=detection.analyze(coordinated())
         self.assertEqual(len(result['groups']),1); group=result['groups'][0]

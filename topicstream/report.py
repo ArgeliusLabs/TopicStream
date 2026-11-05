@@ -90,6 +90,10 @@ def render(store,cfg,now=None,result=None):
     accounts=A.account_features(posts,now=now,burst_accounts=burst_accounts,min_posts=cfg.get('accounts',{}).get('min_posts',3),top=cfg.get('accounts',{}).get('top',40))
     w('<h2 id="accounts">Account observations</h2><p>Age is measured at first observed activity in this case. Low lifetime activity does not establish dormancy. Hour concentration requires at least three observed days and does not establish location or working hours. Flag counts are not probabilities.</p>')
     w(_table(['Account','Posts','Observed signals','Age at event','Median likes'],[(esc(r['account']+' ('+r['source']+')'),r['posts'],esc(', '.join(r['signals'])),num(r['age_days']),num(r['median_likes'])) for r in accounts]))
+    hours=A.hour_comparison(posts,{r['account_id'] for r in accounts if len(r['signals'])>=2})
+    if hours:
+        w('<h3>Observed posting-hour comparison</h3><p>Accounts with at least two descriptive signals: '+str(hours['selected_posts'])+' posts. Their tightest eight-hour band starts at '+f'{hours["band_start"]:02d}:00 UTC'+f' and contains {hours["band_share"]:.1%} of their posts. The same band contains {hours["all_share"]:.1%} of all observed posts. Sampling and ordinary schedules can explain this pattern; it does not establish location, intent, or office hours.</p>')
+        w(_table(['UTC hour','Selected accounts','All observed posts'],[(f'{h:02d}:00',hours['hours'][h],hours['all_hours'][h]) for h in range(24)]))
     clusters=A.creation_clusters(posts,burst_accounts)
     if clusters:
         w('<h3>Creation-date concentration</h3><p>Comparison is against accounts in this dataset, not a representative platform population.</p>')

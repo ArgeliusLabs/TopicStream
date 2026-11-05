@@ -24,6 +24,7 @@ class Post:
     source: str; instance: str; post_id: str; created_utc: str; author: str; text: str
     author_id: str = None; author_created_utc: str = None; author_followers: int = None; lang: str = None
     is_repost: bool = False; reposts: int = None; likes: int = None; replies: int = None; url: str = None
+    is_reply: bool = False; reply_to: str = None; author_posts: int = None   # reply_to = the account replied to, when the platform says
     matched: list = field(default_factory=list); tags: list = field(default_factory=list); links: list = field(default_factory=list)
     collected_utc: str = ''
     @property
@@ -117,6 +118,7 @@ class Mastodon:
                         a = src['account']
                         out.append(Post(source=self.name, instance=inst, post_id=uri, created_utc=iso(created), author=a['acct'], author_id=str(a['id']),
                                         author_created_utc=iso(parse_time(a['created_at'])) if a.get('created_at') else None, author_followers=a.get('followers_count'),
+                                        author_posts=a.get('statuses_count'), is_reply=bool(src.get('in_reply_to_id')), reply_to=(src.get('mentions') or [{}])[0].get('acct') if src.get('in_reply_to_id') else None,
                                         text=text, lang=src.get('language'), is_repost=bool(s.get('reblog')), reposts=src.get('reblogs_count'), likes=src.get('favourites_count'),
                                         replies=src.get('replies_count'), url=src.get('url'), matched=matches(text + ' ' + ' '.join('#' + t['name'] for t in src.get('tags', [])), tags, terms),
                                         tags=sorted({t['name'].lower() for t in src.get('tags', [])} | set(tags_in(text))),
@@ -158,6 +160,7 @@ class Bluesky:
                     emb = p.get('embed') or {}; ext = emb.get('external', {}).get('uri') if isinstance(emb, dict) else None
                     out.append(Post(source=self.name, instance='bsky.social', post_id=p['uri'], created_utc=iso(parse_time(rec['createdAt'])), author=a['handle'], author_id=a['did'],
                                     author_created_utc=iso(parse_time(a['createdAt'])) if a.get('createdAt') else None, text=text, lang=(rec.get('langs') or [None])[0],
+                                    is_reply=bool(rec.get('reply')), author_posts=a.get('postsCount'),
                                     reposts=p.get('repostCount'), likes=p.get('likeCount'), replies=p.get('replyCount'),
                                     url=f"https://bsky.app/profile/{a['handle']}/post/{p['uri'].rsplit('/', 1)[-1]}", matched=matches(text, tags, terms),
                                     tags=sorted({t.lower() for t in facet_tags} | set(tags_in(text))), links=facet_links + ([ext] if ext else []), collected_utc=iso(now)))
@@ -179,7 +182,7 @@ class X:
     With `archive: true` and `days` > 7 it uses the full-archive endpoints (search/all, counts/all), which pay-per-use can call."""
     name = 'x'
     COUNT_RECENT, COUNT_ALL, POST_READ = 0.005, 0.010, 0.005
-    FIELDS = 'created_at,entities,public_metrics,referenced_tweets,lang,author_id'
+    FIELDS = 'created_at,entities,public_metrics,referenced_tweets,lang,author_id,in_reply_to_user_id'
     def __init__(self, http, log=print, max_posts_per_tag=200, budget_usd=2.0, bearer=None, query_extra='', archive=False, spent_before=0.0, cursors=None, save_cursor=None, sample_per_day=0, sample_windows_per_day=6, counts_every_minutes=60, counts_fetched=None, save_counts_fetched=None):
         self.http = http; self.log = log; self.max_posts = max_posts_per_tag; self.budget = budget_usd
         self.bearer = bearer or os.environ.get('X_BEARER_TOKEN'); self.spent = 0.0; self.spent_before = spent_before
@@ -265,9 +268,12 @@ class X:
         for t in j.get('data', []):
             u = users.get(t['author_id'], {}); ent = t.get('entities', {}); pm = t.get('public_metrics', {})
             is_rt = any(r.get('type') == 'retweeted' for r in t.get('referenced_tweets', []))
+            is_reply = any(r.get('type') == 'replied_to' for r in t.get('referenced_tweets', [])) or bool(t.get('in_reply_to_user_id'))
+            reply_to = users.get(t.get('in_reply_to_user_id') or '', {}).get('username') or (t['text'].split()[0].lstrip('@') if is_reply and t['text'].startswith('@') else None)
             links = [x.get('unwound_url') or x.get('expanded_url') for x in ent.get('urls', []) if not re.match(r'https://(twitter|x)\.com/', x.get('expanded_url') or '')]
             out.append(Post(source=self.name, instance='api.x.com', post_id=t['id'], created_utc=iso(parse_time(t['created_at'])), author=u.get('username', t['author_id']), author_id=t['author_id'],
                             author_created_utc=iso(parse_time(u['created_at'])) if u.get('created_at') else None, author_followers=(u.get('public_metrics') or {}).get('followers_count'),
+                            author_posts=(u.get('public_metrics') or {}).get('tweet_count'), is_reply=is_reply, reply_to=reply_to,
                             text=t['text'], lang=t.get('lang'), is_repost=is_rt, reposts=pm.get('retweet_count'), likes=pm.get('like_count'), replies=pm.get('reply_count'),
                             url=f"https://x.com/{u.get('username', 'i')}/status/{t['id']}", matched=matches(t['text'], tags, terms),
                             tags=sorted({h['tag'].lower() for h in ent.get('hashtags', [])} | set(tags_in(t['text']))), links=[l for l in links if l], collected_utc=iso(now)))
@@ -295,6 +301,26 @@ class X:
                 start += step
             self.log(f'  x {self.query(raw, kind)}: {got} posts sampled, {per_window} per {24 // self.sample_windows}-hour window, ${self.spent:.2f} this run, ${self.spent_before + self.spent:.2f} in this database')
         return out
+    def read_window(self, raw, kind, start, end, tags, terms, now, expected=None, cap=5000):
+        """Read EVERY post for one query between start and end (datetimes): the complete record of one hour, where the burst and
+        account rules mean something. Costs about expected x $0.005; the caller checks the budget first. Uses the archive endpoint
+        on its own when the window is older than the seven days recent search covers."""
+        archive_before = self.archive
+        if (now - start).days >= 7: self.archive = True
+        out = []; token = None
+        try:
+            while len(out) < cap:
+                q = {'query': self.query(raw, kind), 'max_results': 100 if not self.archive else 500, 'start_time': iso(start), 'end_time': iso(end),
+                     self.fields_param: self.FIELDS, 'expansions': 'author_id', 'user.fields': 'created_at,public_metrics,username'}
+                if token: q['next_token'] = token
+                j, _ = self._get(self._ep('search'), q); data = j.get('data', []); self.spent += len(data) * self.POST_READ
+                out.extend(self._parse(j, tags, terms, now)); token = j.get('meta', {}).get('next_token')
+                if not token or not data: break
+        finally:
+            self.archive = archive_before
+        self.log(f'  x {self.query(raw, kind)}: window {iso(start)} to {iso(end)} read complete: {len(out)} posts' + (f' (counts said {expected:,})' if expected else '') + f', ${self.spent:.2f} this run')
+        return out
+
     def usage(self):
         """GET /2/usage/tweets: what X says the project has consumed this billing cycle (project-level, not per run)."""
         j, _ = self._get('https://api.x.com/2/usage/tweets', {}); return j

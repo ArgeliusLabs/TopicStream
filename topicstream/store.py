@@ -47,7 +47,13 @@ CREATE TABLE IF NOT EXISTS cursors (                 -- where incremental collec
 CREATE TABLE IF NOT EXISTS counts (                  -- platform-side counts at finer than a day (X counts endpoint, hourly)
   source TEXT NOT NULL, tag TEXT NOT NULL, start_utc TEXT NOT NULL, uses INTEGER NOT NULL, fetched_utc TEXT NOT NULL, PRIMARY KEY (source, tag, start_utc)
 );
+CREATE TABLE IF NOT EXISTS windows (                 -- time windows read COMPLETE (every post), where burst and account rules are trustworthy
+  source TEXT NOT NULL, tag TEXT NOT NULL, start_utc TEXT NOT NULL, end_utc TEXT NOT NULL, expected INTEGER, got INTEGER NOT NULL, fetched_utc TEXT NOT NULL,
+  PRIMARY KEY (source, tag, start_utc)
+);
 '''
+# columns added after 0.1.0; existing databases get them in place
+MIGRATIONS = [('posts', 'is_reply', 'INTEGER NOT NULL DEFAULT 0'), ('posts', 'reply_to', 'TEXT'), ('posts', 'author_posts', 'INTEGER')]
 
 class Store:
     def __init__(self, path):
@@ -57,6 +63,9 @@ class Store:
         # The database is small and single-writer; a crash mid-run costs at most that run, which the next collection repeats for free.
         self.db.execute('PRAGMA journal_mode=MEMORY')
         self.db.executescript(SCHEMA)
+        for table, col, decl in MIGRATIONS:
+            if col not in {r['name'] for r in self.db.execute(f'PRAGMA table_info({table})')}: self.db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {decl}')
+        self.db.commit()
 
     def add_posts(self, posts):
         """Insert or refresh. Returns how many were new. Engagement numbers are refreshed on re-collection because they grow."""
@@ -67,12 +76,13 @@ class Store:
                 new += 1; matched = p.matched
             else:
                 matched = sorted(set(json.loads(cur['matched'])) | set(p.matched))
-            self.db.execute('''INSERT INTO posts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            self.db.execute('''INSERT INTO posts (key, source, instance, post_id, created_utc, author, author_id, author_created_utc, author_followers, text, lang, is_repost,
+                reposts, likes, replies, url, matched, tags, links, collected_utc, is_reply, reply_to, author_posts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(key) DO UPDATE SET reposts=excluded.reposts, likes=excluded.likes, replies=excluded.replies,
-                author_followers=excluded.author_followers, matched=excluded.matched, collected_utc=excluded.collected_utc''',
+                author_followers=excluded.author_followers, author_posts=excluded.author_posts, matched=excluded.matched, collected_utc=excluded.collected_utc''',
                 (p.key, p.source, p.instance, p.post_id, p.created_utc, p.author, p.author_id, p.author_created_utc, p.author_followers,
                  p.text, p.lang, int(p.is_repost), p.reposts, p.likes, p.replies, p.url, json.dumps(matched), json.dumps(sorted(set(p.tags))),
-                 json.dumps(p.links), p.collected_utc))
+                 json.dumps(p.links), p.collected_utc, int(p.is_reply), p.reply_to, p.author_posts))
         self.db.commit(); return new
 
     def add_tag_days(self, rows):
@@ -113,3 +123,6 @@ class Store:
     def add_counts(self, source, rows, now):
         self.db.executemany('INSERT OR REPLACE INTO counts VALUES (?,?,?,?,?)', [(source, tag, start, n, now) for tag, start, n in rows]); self.db.commit()
     def counts(self, source='x'): return [dict(r) for r in self.db.execute('SELECT * FROM counts WHERE source = ? ORDER BY tag, start_utc', (source,))]
+    def add_window(self, source, tag, start, end, expected, got, now):
+        self.db.execute('INSERT OR REPLACE INTO windows VALUES (?,?,?,?,?,?,?)', (source, tag, start, end, expected, got, now)); self.db.commit()
+    def windows(self): return [dict(r) for r in self.db.execute('SELECT * FROM windows ORDER BY tag, start_utc')]

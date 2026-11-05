@@ -219,3 +219,112 @@ class CountsThrottleTests(unittest.TestCase):
         rows = x.tag_days(['Election2026'], NOW, NOW - timedelta(days=7)); self.assertEqual(rows, []); self.assertEqual(http.requests, 0); self.assertEqual(x.spent, 0)
         x2 = X(http, log=lambda *a: None, max_posts_per_tag=10, budget_usd=5, bearer='tok', counts_every_minutes=60, counts_fetched={'#election2026': iso(NOW - timedelta(minutes=61))}, save_counts_fetched=lambda l, w: saved.__setitem__(l, w))
         rows = x2.tag_days(['Election2026'], NOW, NOW - timedelta(days=7)); self.assertEqual(len(rows), 7); self.assertEqual(saved, {'#election2026': iso(NOW)}); self.assertAlmostEqual(x2.spent, 0.01)
+
+class PeakTests(unittest.TestCase):
+    def _cfg(self, d, **x):
+        xd = dict(enabled=True, max_posts_per_tag=4, budget_usd=5.0, query_extra=''); xd.update(x)
+        return dict(tags=['Election2026'], terms=[], days=7, db=str(Path(d) / 'c.sqlite'), report=str(Path(d) / 'r.html'), pause_seconds=0,
+                    sources=dict(mastodon=dict(enabled=False), bluesky=dict(enabled=False), x=xd), alert=dict(uses=200, ratio=10, min_uses=10))
+    def test_read_window_is_complete_and_recorded(self):
+        import topicstream.sources as S
+        from topicstream.__main__ import collect, peak, buy_windows, top_hours
+        fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d); logs = []
+                store = collect(cfg, log=logs.append)                                   # stores the hourly counts
+                top = top_hours(store, ['#election2026'], 2); self.assertEqual(len(top), 2); self.assertTrue(top[0][2] >= top[1][2])
+                self.assertEqual(buy_windows(cfg, store, top, log=logs.append, dry=True), 0)      # dry run buys nothing
+                self.assertEqual(len(store.windows()), 0)
+                n = buy_windows(cfg, store, top, log=logs.append); self.assertGreater(n, 0)
+                w = store.windows(); self.assertEqual(len(w), 2); self.assertEqual(w[0]['got'], 4); self.assertEqual(w[0]['end_utc'][11:13], f"{(int(w[0]['start_utc'][11:13]) + 1) % 24:02d}")
+                calls = [u for u in fake.calls if 'search' in u]; q = urllib.parse.parse_qs(urllib.parse.urlparse(calls[-1]).query)
+                self.assertIn('start_time', q); self.assertIn('end_time', q); self.assertNotIn('since_id', q)
+                self.assertEqual(buy_windows(cfg, store, top, log=logs.append), 0)        # already complete: nothing re-bought
+                self.assertTrue(any('peak' in json.loads(r['notes'] or '{}') for r in store.runs()))
+                html = R.render(store, cfg, now=NOW); self.assertIn('Hours read complete on X', html); self.assertIn('First 10 minutes', html)
+        finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
+    def test_windows_section_before_any_peak(self):
+        import topicstream.sources as S
+        from topicstream.__main__ import collect
+        fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d); store = collect(cfg, log=lambda m: None)
+                html = R.render(store, cfg, now=NOW); self.assertIn('No hour has been read complete yet', html); self.assertIn('to read in full', html)
+                s2 = Store(':memory:')                                                  # an import-only database: no X counts series at all
+                html = R.render(s2, dict(name='t', tags=['x'], days=7, alert={}), now=NOW); self.assertIn('This database has no X counts series', html)
+        finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
+    def test_budget_refuses_the_batch(self):
+        import topicstream.sources as S
+        from topicstream.__main__ import collect, buy_windows, top_hours
+        fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d, budget_usd=0.05); logs = []
+                store = collect(cfg, log=logs.append); top = top_hours(store, ['#election2026'], 1)
+                self.assertEqual(buy_windows(cfg, store, top, log=logs.append), 0); self.assertTrue(any('over budget' in l for l in logs))
+        finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
+    def test_on_alert_mode_reads_nothing_until_a_rule_trips(self):
+        import topicstream.sources as S
+        from topicstream.__main__ import collect
+        fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d, read_mode='on_alert'); logs = []
+                store = collect(cfg, log=logs.append)
+                n = json.loads(store.runs()[0]['notes']); self.assertEqual(n['x']['posts'], 0); self.assertAlmostEqual(n['x']['spent_usd'], 0.01)   # counts only
+                # the fake's hourly series is flat (100..267 per hour, average ~183): no hour is 10x the average, none >= 200 by the first-trip rule? 267 >= 200 trips
+                self.assertTrue(len(store.windows()) >= 1); self.assertTrue(any('buying' in l for l in logs))
+        finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
+
+class CoordinationLayerTests(unittest.TestCase):
+    def mk(self, author, minutes, text, links=(), lang='en', created_days=400, followers=50, likes=0, reply=False, source='x', total=None):
+        return dict(source=source, author=author, created_utc=iso(NOW + timedelta(minutes=minutes)), text=text, tags=[], matched=['#t'], links=list(links), is_repost=0, likes=likes,
+                    author_created_utc=iso(NOW - timedelta(days=created_days)), author_followers=followers, lang=lang, is_reply=reply, reply_to='bigaccount' if reply else None, author_posts=total)
+    def test_link_bursts_use_the_exact_url(self):
+        P = [self.mk(f'a{i}', i, f'post {i}', ['https://Site.example/page?utm_campaign=rs9#x']) for i in range(4)] + [self.mk('z', 2, 'other', ['https://site.example/page'])]
+        b = A.link_bursts(P, 10, 3); self.assertEqual(len(b), 1); self.assertEqual(len(b[0]['accounts']), 4); self.assertIn('utm_campaign=rs9', b[0]['link'])
+    def test_paraphrase_bursts_merge_variants_and_report_exact_copies(self):
+        base = 'the water in the bay has turned brown and the fishermen are reporting dead fish along the shoreline this morning'
+        variants = [base, base, base.replace('this morning', 'today'), base.replace('turned brown', 'gone brown'), 'the water in the bay turned brown and fishermen report dead fish along the shoreline today']
+        P = [self.mk(f'a{i}', i * 3, v) for i, v in enumerate(variants)] + [self.mk('q', 1, 'completely unrelated post about football scores and the weather tonight in town')]
+        pb = A.paraphrase_bursts(P, 60, 3); self.assertEqual(len(pb), 1); self.assertEqual(len(pb[0]['accounts']), 5); self.assertEqual(pb[0]['exact'], 2); self.assertGreaterEqual(pb[0]['variants'], 3)
+    def test_account_features_and_signals(self):
+        P = [self.mk('replybot', i * 7, f'@x reply number {i} about the thing', reply=True, created_days=10, followers=20) for i in range(12)]
+        P += [self.mk('poly', i * 90, f'post {i}', lang=['en', 'ja', 'es'][i % 3], created_days=800, followers=5000, likes=30, total=50) for i in range(9)]
+        rows = {r['account']: r for r in A.account_features(P, now=NOW, burst_accounts={'poly'})}
+        self.assertEqual(set(rows['replybot']['signals']), {'replies', 'no_audience', 'young', 'office_hours'})
+        self.assertEqual(set(rows['poly']['signals']), {'multilingual', 'dormant_then_active', 'co_posted'})
+        self.assertEqual(rows['replybot']['reply_to'], 'bigaccount')
+    def test_hour_profile_band(self):
+        P = [self.mk('a', 60 * h, 'x') for h in [1, 2, 3, 4, 5, 6, 7, 8, 20]]   # NOW is 20:00 UTC, so minutes shift the hour
+        prof = A.hour_profile(P); self.assertEqual(sum(prof['hours']), 9); self.assertGreaterEqual(prof['band_share'], 8 / 9 - 1e-9)
+    def test_creation_clusters(self):
+        P = [self.mk(f'c{i}', i, 'x', created_days=100) for i in range(5)] + [self.mk(f'o{i}', i, 'x', created_days=100 + 30 * i) for i in range(1, 30)]
+        cc = A.creation_clusters(P, {f'c{i}' for i in range(5)}); self.assertEqual(len(cc), 1); self.assertEqual(cc[0]['subset'], 5); self.assertGreater(cc[0]['lift'], 3)
+    def test_cross_platform_and_infrastructure(self):
+        P = [self.mk('a', 0, 'a long enough identical message to be matched across the two platforms here', source='x'),
+             self.mk('b@m', 5, 'a long enough identical message to be matched across the two platforms here', source='mastodon'),
+             self.mk('c', 0, 'x', ['https://site.example/p?utm_campaign=rs9'], source='x'), self.mk('d', 1, 'y', ['https://site.example/q?utm_campaign=rs9'], source='bluesky'),
+             self.mk('e', 1, 'z', ['https://bit.ly/abc', 'https://site.example/r?utm_campaign=rs9'], source='x'), self.mk('f', 1, 'w', ['https://bit.ly/def'], source='x')]
+        xp = A.cross_platform(P, 30); self.assertEqual(xp[0]['kind'], 'text'); self.assertEqual(xp[0]['sources'], ['mastodon', 'x'])
+        inf = A.infrastructure(P); self.assertEqual(inf['params'][0][0], 'utm_campaign=rs9'); self.assertEqual(len(inf['params'][0][1]), 3); self.assertEqual(inf['shorteners'][0][0], 'bit.ly')
+        self.assertNotIn('bit.ly', [d for d, _ in inf['domains']])                        # a shortener is not a destination
+    def test_infrastructure_drops_share_buttons_and_groups_tokens(self):
+        P = [self.mk(f'u{i}', i, 'v', [f'https://news.example/{i}?utm_source=twitter&utm_medium=social&feature=youtu.be']) for i in range(6)]      # six people, six share buttons
+        P += [self.mk(f'r{i}', i, 'w', ['https://ex.example/token/abc?shortCode=3CaPbHA&ref=LLJIE&t=1792570550730&utm_source=okx_share']) for i in range(4)]
+        inf = A.infrastructure(P); keys = [k for k, _ in inf['params']]
+        self.assertEqual(len(keys), 1, keys)                                             # boilerplate gone; the four token parameters are one row
+        self.assertIn('ref=LLJIE', keys[0]); self.assertIn('shortCode=3CaPbHA', keys[0]); self.assertIn('utm_source=okx_share', keys[0]); self.assertEqual(len(inf['params'][0][1]), 4)
+    def test_link_share_and_reply_fallback(self):
+        P = [self.mk('two', i * 60, f'post {i}', ['https://a.example/1', 'https://a.example/2']) for i in range(5)]           # two links per post is still one linking post
+        P += [self.mk('legacy', i * 60, f'@someone reply {i} stored before is_reply existed') for i in range(6)]
+        rows = {r['account']: r for r in A.account_features(P, now=NOW)}
+        self.assertEqual(rows['two']['link_share'], 1.0); self.assertIn('one_domain', rows['two']['signals'])
+        self.assertEqual(rows['legacy']['reply_share'], 1.0); self.assertIn('replies', rows['legacy']['signals'])
+    def test_leading_edge(self):
+        P = [self.mk(f's{i}', i, 'seed', ['https://seed.example/x']) for i in range(3)] + [self.mk(f'o{i}', 20 + i, 'organic') for i in range(10)]
+        for p in P: p['matched'] = ['#t']
+        le = A.leading_edge(P, dict(tag='#t', start_utc=iso(NOW), end_utc=iso(NOW + timedelta(hours=1))), 10)
+        self.assertEqual(le['edge_accounts'], ['s0', 's1', 's2']); self.assertEqual(le['posts'], 13); self.assertEqual(le['edge_links'][0][0], 'seed.example')

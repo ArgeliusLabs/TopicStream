@@ -8,9 +8,12 @@
   python -m topicstream estimate [--config config.json]      what a run would cost on X, with live 7-day volumes if a token is present
   python -m topicstream usage    [--config config.json]      what X says the project has consumed this billing cycle
   python -m topicstream discover [--config config.json] [--add N]   tags riding along with what you track; --add N appends the top N to the config
+  python -m topicstream peak [--hours N] [--at 2026-10-21T14:00] [--tag php2shell] [--dry-run]
+                                       buy the busiest hour(s) COMPLETE on X, where the burst and account rules are trustworthy
 
 "tags" are hashtags; "terms" are phrases, searched as quoted phrases on X and as text on Bluesky (Mastodon has no public phrase search).
 Set discover.auto to true to let watch mode add co-occurring tags on its own, up to discover.max_tags, each one costing what any tag costs.
+Set sources.x.read_mode to "on_alert" and watch buys nothing but counts until an hour trips a rule, then buys that hour complete.
 
 Credentials come from the environment or from a .env file next to the config (X_BEARER_TOKEN=..., BSKY_HANDLE=..., BSKY_APP_PASSWORD=...).
 """
@@ -48,7 +51,10 @@ def collect(cfg, log=print):
         try:
             rows = src.tag_days(cfg['tags'], now) if src.name != 'x' else src.tag_days(cfg['tags'], now, since, cfg['terms']); store.add_tag_days(rows)
             if getattr(src, 'hourly', None): store.add_counts('x', src.hourly, iso(now))
-            posts = src.posts(cfg['tags'], cfg['terms'], since, now); new = store.add_posts(posts)
+            if src.name == 'x' and xcfg.get('read_mode', 'always') == 'on_alert':
+                posts, new = [], 0; log('   read_mode on_alert: posts are bought only for hours whose counts trip a rule (see below)')
+            else:
+                posts = src.posts(cfg['tags'], cfg['terms'], since, now); new = store.add_posts(posts)
             notes[src.name] = dict(posts=len(posts), new=new, tag_day_rows=len(rows))
             if getattr(src, 'spent', 0): notes[src.name]['spent_usd'] = round(src.spent, 4)
             log(f'   {len(posts)} posts seen, {new} new')
@@ -65,13 +71,67 @@ def collect(cfg, log=print):
         f = v and v['first_trip']
         if f and store.add_alert(t, f['start'], v['window_min'], f['uses'], f['accounts'], v['baseline'], '; '.join(f['reasons']), iso(now)):
             log(f'!! ALERT {t}: {f["uses"]} uses / {f["accounts"]} accounts in {v["window_min"]} min from {f["start"]} ({"; ".join(f["reasons"])})')
+    tripped = []
     for t in tracked(cfg):   # X counts are complete where sampled posts are not; alert on them separately
         v = A.velocity_from_counts(store.counts('x'), t, int(al.get('uses', 200)), float(al.get('ratio', 10)), int(al.get('min_uses', 10)))
         f = v and v['first_trip']
         if f and store.add_alert(t, f['start'], 60, f['uses'], 0, v['baseline'], 'X counts: ' + '; '.join(f['reasons']), iso(now)):
-            log(f'!! ALERT (X counts, complete) {t}: {f["uses"]} posts in the hour from {f["start"]} ({"; ".join(f["reasons"])})')
+            log(f'!! ALERT (X counts, complete) {t}: {f["uses"]} posts in the hour from {f["start"]} ({"; ".join(f["reasons"])})'); tripped.append((t, f['start'], f['uses']))
     notes['http_requests'] = http.requests
-    store.finish_run(run_id, iso(utcnow()), notes); return store
+    store.finish_run(run_id, iso(utcnow()), notes)
+    if tripped and xcfg.get('read_mode', 'always') == 'on_alert':
+        log(f'== x: buying {len(tripped)} alerted hour(s) complete'); buy_windows(cfg, store, tripped, log)
+    return store
+
+def buy_windows(cfg, store, wanted, log=print, dry=False):
+    """Read the listed (label, start_utc) hours complete on X. `wanted` comes from the counts table, so each has an expected size.
+    Refuses the whole batch if it could cross budget_usd. Records every window read in the windows table."""
+    from .sources import queries
+    xcfg = cfg.get('sources', {}).get('x', {}); spent = store.spent('x'); done = {(w['tag'], w['start_utc']) for w in store.windows()}
+    by_label = {label: (kind, raw) for label, kind, raw in queries(cfg['tags'], cfg['terms'])}
+    plan = []
+    for label, start, expected in wanted:
+        start = iso(parse_time(start))                       # the counts API writes ...T14:00:00.000Z; windows are stored as ...T14:00:00Z
+        if (label, start) not in done and label in by_label and (label, start) not in [(l, st) for l, st, _ in plan]: plan.append((label, start, expected))
+    if not plan: log('nothing to buy: every requested window is already complete in this database'); return 0
+    est = sum(e for _, _, e in plan) * X.POST_READ
+    log(f'plan: {len(plan)} window(s), {sum(e for _, _, e in plan):,} posts by the counts, up to ${est:.2f}; ${spent:.2f} already spent in this database, budget_usd {xcfg.get("budget_usd", 2.0):.2f}')
+    for label, start, expected in plan: log(f'   {label:28s} {start[:16].replace("T", " ")} UTC  {expected:>6,} posts  ${expected * X.POST_READ:.2f}')
+    if spent + est > float(xcfg.get('budget_usd', 2.0)): log('over budget: raise budget_usd or ask for fewer hours'); return 0
+    if dry: return 0
+    now = utcnow(); http = Http(pause=float(cfg.get('pause_seconds', 1.0)), log=log)
+    x = X(http, log, budget_usd=xcfg.get('budget_usd', 2.0), query_extra=xcfg.get('query_extra', ''), archive=bool(xcfg.get('archive', False)), spent_before=spent)
+    if not x.available(): log('No X_BEARER_TOKEN.'); return 0
+    run_id = store.start_run(iso(now)); total = 0
+    try: store_meter = int(x.usage().get('data', {}).get('project_usage', 0))
+    except Exception: store_meter = None
+    for label, start, expected in plan:
+        kind, raw = by_label[label]; t0 = parse_time(start); t1 = t0 + timedelta(hours=1)
+        posts = x.read_window(raw, kind, t0, t1, cfg['tags'], cfg['terms'], now, expected)
+        new = store.add_posts(posts); store.add_window('x', label, iso(t0), iso(t1), expected, len(posts), iso(now)); total += len(posts)
+        log(f'   stored {len(posts)} ({new} new) for {label} at {start[:16]}')
+    notes = {'x': dict(windows=len(plan), posts=total, spent_usd=round(x.spent, 4)), 'peak': True}
+    if store_meter is not None: notes['x_meter_before'] = store_meter
+    store.finish_run(run_id, iso(utcnow()), notes); return total
+
+def top_hours(store, labels, hours=1, at=None):
+    """The busiest hours per label from the counts table, or the one hour named by `at` (an ISO time; snapped to the hour)."""
+    counts = store.counts('x'); out = []
+    for label in labels:
+        rows = [c for c in counts if c['tag'] == label]
+        if at:
+            hour = at[:13] + ':00:00'
+            rows = [c for c in rows if c['start_utc'][:13] == hour[:13]]
+        for c in sorted(rows, key=lambda c: -c['uses'])[:hours]: out.append((label, c['start_utc'], c['uses']))
+    return out
+
+def peak(cfg, hours=1, at=None, label=None, dry=False, log=print):
+    """Buy the busiest hour(s) complete. The counts series says which hours matter; this reads every post in them."""
+    store = Store(cfg['db']); labels = [label] if label else tracked(cfg)
+    wanted = top_hours(store, labels, hours, at)
+    if not wanted: log('no counts stored for those terms yet: run collect (or estimate) first so the counts series exists'); return
+    n = buy_windows(cfg, store, wanted, log, dry)
+    if n: write_report(cfg, log)
 
 def write_report(cfg, log=print):
     store = Store(cfg['db']); out = Path(cfg['report']); out.write_text(R.render(store, cfg), encoding='utf-8')
@@ -86,7 +146,7 @@ def import_csv(cfg, path, source, log=print):
             rows.append(Post(source=source, instance=source, post_id=r.get('post_id') or f"{r['handle']}-{r['timestamp_utc']}", created_utc=iso(parse_time(r['timestamp_utc'].replace(' ', 'T') + ('Z' if 'Z' not in r['timestamp_utc'] and '+' not in r['timestamp_utc'] else ''))),
                              author=r['handle'], text=text, lang=r.get('lang'), is_repost=r.get('content_type', 'post') == 'repost',
                              reposts=int(r['reposts']) if r.get('reposts') else None, likes=int(r['likes']) if r.get('likes') else None, replies=int(r['replies']) if r.get('replies') else None,
-                             matched=matches(text, cfg['tags'], cfg['terms']), tags=tags_in(text), links=[link] if link else [], collected_utc=now))
+                             is_reply=bool(r.get('in_reply_to')), matched=matches(text, cfg['tags'], cfg['terms']), tags=tags_in(text), links=[link] if link else [], collected_utc=now))
     n = store.add_posts(rows); log(f'imported {len(rows)} rows, {n} new, from {path}')
 
 def estimate(cfg, log=print):
@@ -138,20 +198,23 @@ def usage(cfg, log=print):
     log(f'X meter: {reads:,} unique post reads this billing cycle (cap {int(u.get("project_cap", 0)):,}, resets on day {u.get("cap_reset_day")}) = ${reads * X.POST_READ:,.2f} at ${X.POST_READ} a read, before counts requests.')
     store = Store(cfg['db']); runs = [r for r in store.runs() if r['notes'] and 'x_meter_before' in json.loads(r['notes'])]
     if runs:
-        first = json.loads(runs[0]['notes'])['x_meter_before']
-        log(f'Since this database\'s first run (meter then {first:,}): {reads - first:,} unique reads = ${(reads - first) * X.POST_READ:,.2f}; the tool\'s own ledger for the same runs says ${store.spent("x"):,.2f} (every post returned, counts included).')
+        first = json.loads(runs[0]['notes'])['x_meter_before']; ledger = sum(json.loads(r['notes']).get('x', {}).get('spent_usd', 0) for r in runs)
+        log(f'Since {runs[0]["started_utc"][:16]} UTC, the first run here that recorded the meter (then {first:,}): {reads - first:,} unique reads = ${(reads - first) * X.POST_READ:,.2f}; the tool\'s own ledger for those runs says ${ledger:,.2f} (every post returned). The meter trails a run by minutes, longer after a large read.')
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='topicstream', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', choices=['collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover'])
+    ap.add_argument('command', choices=['collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak'])
     ap.add_argument('path', nargs='?', help='CSV path for import-csv')
     ap.add_argument('--config', default='config.json'); ap.add_argument('--every', type=int, default=15, help='minutes between collections in watch mode')
     ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
+    ap.add_argument('--hours', type=int, default=1, help='peak: how many of the busiest hours per term to buy complete'); ap.add_argument('--at', help='peak: one specific hour, e.g. 2026-10-21T14:00')
+    ap.add_argument('--tag', help='peak: only this term (as the report labels it, e.g. #php2shell or php2shell)'); ap.add_argument('--dry-run', action='store_true', help='peak: show the plan and cost, buy nothing')
     a = ap.parse_args(argv); cfg = load_cfg(a.config)
     if a.command == 'collect': collect(cfg)
     elif a.command == 'estimate': estimate(cfg)
     elif a.command == 'usage': usage(cfg)
     elif a.command == 'discover': discover(cfg, a.add, path=a.config)
+    elif a.command == 'peak': peak(cfg, a.hours, a.at, a.tag, a.dry_run)
     elif a.command == 'report': write_report(cfg)
     elif a.command == 'run': collect(cfg); write_report(cfg)
     elif a.command == 'import-csv':

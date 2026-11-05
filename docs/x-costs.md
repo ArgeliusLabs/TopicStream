@@ -31,7 +31,7 @@ Measured on 4 November 2026 and confirmed against the invoice:
 
 - X meters unique posts per billing cycle. Reading the same 20 posts again from a fresh database did not move the meter. Reading 20 posts of which 14 had never been read moved it by exactly 14. The console then showed $14.51 for the day, which is 2,865 unique reads at $0.005 plus 13 full-archive counts requests at a penny and 10 recent counts requests at half a cent, to the cent.
 - The tool's own ledger counts every post returned, so it is an upper bound: across the day it said $17.16. The difference is posts that matched more than one query (a post carrying both the hashtag and the phrase is returned by both searches, metered once) and the overlap between two samples of the same period.
-- The meter lags a run by a minute or two. `python -m topicstream usage` prints it beside the tool's ledger; every collection records the meter at its start.
+- The meter lags a run by a minute or two, and by twenty minutes or more after a read of several hundred posts. `python -m topicstream usage` prints it beside the tool's ledger; every collection records the meter at its start.
 - The API's minimum page is 10 posts, so any cap can be overshot by up to 9 posts per query.
 
 The cycle resets on a fixed day of the month shown by the usage endpoint (`cap_reset_day`). A post read in two different cycles is metered twice.
@@ -84,10 +84,41 @@ Two things stand out in that table. At the quiet end, the counts refresh is most
 4. Before reading, it adds what the database has already recorded to the worst case for this run and compares that with `budget_usd`. Over the line, X is skipped and the run log says so.
 5. `usage` shows X's meter next to the ledger. The meter is what you will be billed for.
 
+## Peak hours and the tripwire: where 0.2 changed the arithmetic
+
+The sample in the retrospective above ($14.51) was the expensive way to answer the question. The counts series, which cost six cents, already said which hour mattered: 14:00 UTC on 21 October, 784 posts. Reading that hour complete is $3.92, and on a complete hour the coordination rules (bursts, leading edge, posts per account, who was there in the first ten minutes) are the record rather than an estimate from a 60-post-a-day sample. `peak --hours 2` buys the two busiest hours per term; `peak --at 2026-10-21T08:00` buys the hour the counts say it started.
+
+```
+peak, 2 busiest hours, 1 term:   784 + 206 posts x $0.005                     = $4.95 by the counts
+same, 3 terms sharing the peak:  unique posts across the three queries x $0.005; a post carrying both the hashtag
+                                 and the phrase is metered once, so usually well under 3x
+```
+
+Done for real on 5 November 2026 against the retrospective's database: the counts said 784 and 206, search returned 645 and 175, the tool's ledger said $4.10 and the meter moved by 762 unique reads, $3.81. The gap between counted and returned (18% and 15%) is posts the index still counts but search no longer serves, deleted or from accounts suspended since; on a vulnerability topic with bot traffic that is normal, and it is a number worth having. The two hours held 493 and 143 originating accounts at 1.2 posts each, which is what a story breaking looks like, not a push.
+
+`read_mode: "on_alert"` does the same thing live. `watch` buys the counts series every `counts_every_minutes` and nothing else. When an hour trips a counts rule (absolute uses, a multiple of the average hour, or both), it buys that hour complete, once, and goes back to counting. The standing cost is the counts refresh:
+
+```
+tripwire, Q terms, counts hourly:   Q x 24 x 2 x $0.005 = Q x $0.24 a day      # 3 terms: $0.72 a day, $22 a month
+first alerted hour:                 that hour's posts x $0.005                   # typically $1 to $5; a 4,000-post hour is $20
+```
+
+Set `budget_usd` to what you are willing to pay for the alerted hour; the tripwire refuses an hour that would cross it and says so in the run log, and the counts keep flowing.
+
+Against the three ways of reading the same week:
+
+| Approach | What you get | Three terms, one week |
+|---|---|---|
+| Counts only | complete volume series, velocity alerts, nothing about accounts | $0.03 once, $5.04 refreshed hourly for a week |
+| Stratified sample, 60 posts a day a term | every day represented, timing approximate, bursts suggestive | $6.30 |
+| Tripwire plus the alerted hour complete | complete volume series, and the hour that mattered with every post in it | $5.04 + the hour ($1 to $5) |
+| Read everything | everything, most of it quiet | $0.005 x total volume: $240 for the retrospective's three queries |
+
 ## Ways to spend less
 
 - `query_extra: "-is:retweet"` roughly halves a busy term. Retweet volume is visible in the `retweet_count` of the originals you do read.
 - `lang:en` (or whichever language) in `query_extra` if you only read one.
 - Combine terms with OR in a single phrase (`PHP2Shell OR CVE-2026-109618`) if you do not need a separate series per term: one counts request, and a post matching both is returned once.
-- Buy the peak hour complete instead of sampling the week. The counts tell you which hour; 784 posts is $3.92.
+- Buy the peak hour complete instead of sampling the week (`peak`). The counts tell you which hour; 784 posts is $3.92, and the rules that matter for coordination only hold on a complete window anyway.
+- Watch in `on_alert` mode and let the counts decide when to read. Three terms around the clock are $0.72 a day until something happens.
 - Let the free sources carry the baseline. Mastodon costs nothing and reports uses and originating accounts per day on its own; Bluesky costs nothing with an app password. Spend on X when the counts say X is where the event is.

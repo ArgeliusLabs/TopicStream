@@ -21,7 +21,7 @@ h2{margin:0 0 4px;font-size:21px}.sub{color:#6b7280;margin-bottom:18px}h3{font-s
 .chart{border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:14px;background:#fff}.chart h4{margin:0 0 10px;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:#374151}
 .bars{display:flex;align-items:flex-end;gap:5px;height:150px;border-bottom:1px solid #e5e7eb}.bars div{flex:1;background:#f59e0b;position:relative;border-radius:3px 3px 0 0;min-height:1px}.bars div span{position:absolute;top:-16px;left:0;right:0;text-align:center;font-size:10px;color:#6b7280}.bars div.z{background:#e5e7eb}
 .xl{display:flex;gap:5px;font-size:10px;color:#6b7280;margin-top:4px}.xl div{flex:1;text-align:center}.xl div small{display:block;color:#9ca3af}
-table.tt{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff}table.tt th{text-align:left;background:#f9fafb;padding:8px 12px;color:#374151;font-weight:600;border-bottom:1px solid #e5e7eb;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase}table.tt td{padding:6px 12px;border-bottom:1px solid #f3f4f6;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.3px;vertical-align:top}
+table.tt{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff}table.tt th{text-align:left;background:#f9fafb;padding:8px 12px;color:#374151;font-weight:600;border-bottom:1px solid #e5e7eb;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase}table.tt td{padding:6px 12px;border-bottom:1px solid #f3f4f6;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.3px;vertical-align:top;overflow-wrap:anywhere}table.tt td.t{white-space:nowrap}
 .pan{border:1px solid #e5e7eb;border-radius:8px;overflow:auto;margin-bottom:14px;background:#fff}
 table.tt.compact th,table.tt.compact td{padding:6px 8px;font-size:11.5px;white-space:nowrap}.pan h4{margin:0;background:#f9fafb;padding:9px 14px;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:#374151;border-bottom:1px solid #e5e7eb}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:900px){.grid2{grid-template-columns:1fr}.db{grid-template-columns:1fr}.tn{position:static;height:auto}}
@@ -43,14 +43,14 @@ def render(store, cfg, now=None):
     terms = cfg.get('terms', []); tags = ['#' + t.lower() for t in cfg['tags']] + [t.lower() for t in terms]; days = int(cfg.get('days', 7))
     ORIG.clear(); ORIG.update({t.lower(): t for t in terms})
     slug = lambda t: ('tag-' if t.startswith('#') else 'phrase-') + (re.sub(r'[^a-z0-9]+', '-', t.lower()).strip('-') or 'x')   # a hashtag and a phrase with the same word get different anchors
-    posts = store.posts(); tds = store.tag_days(); runs = store.runs(); name = cfg.get('name', 'Topic stream'); xcounts = store.counts('x'); xspent = store.spent('x')
+    posts = store.posts(); tds = store.tag_days(); runs = store.runs(); name = cfg.get('name', 'Topic stream'); xcounts = store.counts('x'); xspent = store.spent('x'); wins = store.windows()
     al = cfg.get('alert', {}); win = int(al.get('window_minutes', 30))
     sources = sorted({p['source'] for p in posts}); by_source = {s: sum(1 for p in posts if p['source'] == s) for s in sources}
     out = []
     w = out.append
     w(f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(name)}: topic stream</title><style>{CSS}</style></head><body><div class="db">')
     w('<div class="tn"><div class="brand"><i></i>topicstream</div>')
-    for sec, label in [('alerts', 'alerts'), ('overview', 'overview')] + [(slug(t), disp(t)) for t in tags] + [('candidates', 'candidates'), ('bursts', 'bursts'), ('sources', 'sources')]: w(f'<a href="#{esc(sec)}">{esc(label)}</a>')
+    for sec, label in [('alerts', 'alerts'), ('overview', 'overview')] + [(slug(t), disp(t)) for t in tags] + [('windows', 'complete windows'), ('bursts', 'bursts'), ('accounts', 'accounts'), ('infrastructure', 'infrastructure'), ('candidates', 'candidates'), ('sources', 'sources')]: w(f'<a href="#{esc(sec)}">{esc(label)}</a>')
     spend_line = f'X spend recorded: ${xspent:.2f}<br>' if xspent else ''
     w(f'<div class="meta">{len(posts):,} posts stored<br>{", ".join(f"{s} {n:,}" for s, n in by_source.items()) or "no sources ran"}<br>{len(runs)} collection run(s)<br>{spend_line}generated {now.strftime("%Y-%m-%d %H:%M")} UTC</div></div>')
     w(f'<div class="tm"><h2>Topic stream: {esc(name)}</h2><div class="sub">Window: {days} days ending {esc(A.end_day(posts).isoformat())} · tags {esc(", ".join("#" + t for t in cfg["tags"]) or "none")}' + (f' · phrases {esc(", ".join(chr(34) + t + chr(34) for t in terms))}' if terms else '') + f' · sources: {esc(", ".join(sources) or "none")} · alert window {win} min</div>')
@@ -135,7 +135,7 @@ def render(store, cfg, now=None):
         v = vel.get(t)
         w('<div class="pan"><h4>Busiest window and account concentration (collected posts)</h4>')
         if v:
-            w(f'<table class="tt"><tr><th>Window</th><th>Uses</th><th>Accounts</th><th>Per account</th><th>Average window</th></tr><tr><td>{esc(v["start"][5:16])} to {esc(v["end"][5:16])}</td><td>{v["uses"]}</td><td>{v["accounts"]}</td><td>{v["ratio"]:.1f}</td><td>{v["baseline"]:.2f}</td></tr></table>')
+            w(f'<table class="tt"><tr><th>Window</th><th>Uses</th><th>Accounts</th><th>Per account</th><th>Average window</th></tr><tr><td class="t">{esc(v["start"][5:16])} to {esc(v["end"][5:16])}</td><td>{v["uses"]}</td><td>{v["accounts"]}</td><td>{v["ratio"]:.1f}</td><td>{v["baseline"]:.2f}</td></tr></table>')
             mix = A.account_age_mix(posts, t)
             if mix: w(f'<div style="padding:8px 14px;font-size:12.5px">Account ages known for {mix["accounts_with_age"]} accounts: {mix["under_30"]} created in the last 30 days, {mix["under_90"]} in the last 90.</div>')
         else: w('<div style="padding:10px 14px">No posts collected for this tag.</div>')
@@ -156,6 +156,80 @@ def render(store, cfg, now=None):
         if not acc: w('<tr><td colspan="7">No accounts.</td></tr>')
         w('</table><div class="how"><b>How:</b> straight counts. Volume without an audience (many posts, single-digit likes, few followers, young account) is visible here if it exists; one account matching it is a Tuesday, a cluster matching it is a lead.</div></div>')
 
+    # ---- complete windows (peak)
+    w('<h3 id="windows">Complete windows</h3>')
+    if wins:
+        w('<div class="pan"><h4>Hours read complete on X: every post, every account</h4><table class="tt"><tr><th>Term</th><th>Hour (UTC)</th><th>Counts said</th><th>Read</th><th>Accounts</th><th>Per account</th><th>First 10 minutes</th></tr>')
+        for wn in wins:
+            le = A.leading_edge(posts, wn, 10)
+            gap = (f'<br><small>{wn["expected"] - wn["got"]:,} counted, not returned</small>' if wn["expected"] and wn["expected"] > wn["got"] else '')
+            if le: w(f'<tr><td class="t">{esc(disp(wn["tag"]))}</td><td class="t">{esc(wn["start_utc"][5:16].replace("T", " "))}</td><td>{num(wn["expected"])}</td><td>{wn["got"]}{gap}</td><td>{le["accounts"]}</td><td>{le["per_account"]:.1f}</td><td>{le["edge_posts"]} posts from {len(le["edge_accounts"])} accounts: {esc(", ".join(le["edge_accounts"][:8]))}{"…" if len(le["edge_accounts"]) > 8 else ""}' + (f'<br><small>links: {esc(", ".join(f"{d} ({n})" for d, n in le["edge_links"]))}</small>' if le["edge_links"] else '') + '</td></tr>')
+            else: w(f'<tr><td class="t">{esc(disp(wn["tag"]))}</td><td class="t">{esc(wn["start_utc"][5:16].replace("T", " "))}</td><td>{num(wn["expected"])}</td><td>{wn["got"]}{gap}</td><td colspan="3">no posts stored for this window</td></tr>')
+        w('</table><div class="how"><b>How:</b> <code>python -m topicstream peak</code> reads the busiest hour(s) from the counts series complete, so the burst and account rules below run on the full record instead of a sample. The first ten minutes are the leading edge: who posted before anyone could have organically seen it. Seeders post inside minutes of each other with the same link; organic uptake comes later from people who saw them. Uses per account inside the hour: 206 posts from 190 accounts is a story breaking, 206 from 19 is a push. When the counts said more than the read returned, the difference is posts the index still counts but search no longer serves: deleted, or from accounts suspended or protected since. On a topic with bot traffic that can be a fifth of the hour, and it is itself worth knowing.</div></div>')
+    else:
+        if xcounts:
+            busiest = max(xcounts, key=lambda c: c['uses'])
+            w(f'<div class="pan"><div style="padding:10px 14px;font-size:13px">No hour has been read complete yet. The counts series says which hours matter: the busiest is {esc(busiest["start_utc"][5:16].replace("T", " "))} UTC with {num(busiest["uses"])} posts, ${busiest["uses"] * 0.005:.2f} to read in full. <code>python -m topicstream peak --hours 2</code> buys the top hours, and the burst and account rules then run on the whole record for those hours.</div></div>')
+        else:
+            w('<div class="pan"><div style="padding:10px 14px;font-size:13px">Complete windows come from X: <code>python -m topicstream peak</code> reads the busiest hours of the counts series in full, so the burst and account rules run on the whole record for those hours instead of a sample. This database has no X counts series.</div></div>')
+
+    # ---- bursts: exact text, link, paraphrase
+    bw = int(cfg.get('burst', {}).get('window_minutes', 10)); bm = int(cfg.get('burst', {}).get('minimum', 3))
+    in_win = lambda start: any(wn['start_utc'] <= start < wn['end_utc'] for wn in wins)
+    cth = '<th>Complete?</th>' if wins else ''; ctd = (lambda start: f'<td>{"yes" if in_win(start) else "sample"}</td>') if wins else (lambda start: '')
+    B = A.bursts(posts, bw, bm); L = A.link_bursts(posts, bw, bm); PB = A.paraphrase_bursts(posts, int(cfg.get('burst', {}).get('paraphrase_window_minutes', 60)), bm, float(cfg.get('burst', {}).get('paraphrase_threshold', 0.35)))
+    burst_accounts = {a for b in B + L + PB for a in b['accounts']}
+    w('<h3 id="bursts">Bursts: the co-posting rules</h3>')
+    w(f'<div class="pan"><h4>Same text, several accounts, inside the window</h4><table class="tt"><tr><th>Start</th><th>Accounts</th><th>Uses</th>{cth}<th>Text</th></tr>')
+    for b in B[:25]: w(f'<tr><td class="t">{esc(b["start"][5:16])}</td><td>{len(b["accounts"])}<br><small>{esc(", ".join(b["accounts"][:6]))}{"…" if len(b["accounts"]) > 6 else ""}</small></td><td>{b["uses"]}</td>{ctd(b["start"])}<td>{esc(b["text"])}</td></tr>')
+    if not B: w('<tr><td colspan="5">None at this window and minimum.' + (' X posts here are a sample, and a sparse sample rarely catches two copies inside ten minutes even when the copying is real; <code>peak</code> buys the hour that matters complete.' if sampled and not wins else '') + '</td></tr>')
+    w(f'</table><div class="how"><b>How:</b> strip links, hashtags and mentions, group by the remaining text, slide a {bw}-minute window, report groups with at least {bm} distinct accounts. Reposts excluded.' + (' "Complete?" says whether the burst falls in an hour that was read in full.' if wins else '') + '</div></div>')
+    w(f'<div class="pan"><h4>Same link, several accounts, inside the window</h4><table class="tt"><tr><th>Start</th><th>Accounts</th><th>Uses</th>{cth}<th>Link</th></tr>')
+    for b in L[:25]: w(f'<tr><td class="t">{esc(b["start"][5:16])}</td><td>{len(b["accounts"])}<br><small>{esc(", ".join(b["accounts"][:6]))}{"…" if len(b["accounts"]) > 6 else ""}</small></td><td>{b["uses"]}</td>{ctd(b["start"])}<td>{esc(b["link"][:160])}</td></tr>')
+    if not L: w('<tr><td colspan="5">None at this window and minimum.</td></tr>')
+    w('</table><div class="how"><b>How:</b> the exact URL, tracking parameters included, is the key. A person retyping a link does not reproduce <code>utm_campaign=rs9</code>; a tool pasting one does. Same window and minimum as the text rule.</div></div>')
+    w(f'<div class="pan"><h4>Same message in different words (paraphrase)</h4><table class="tt"><tr><th>Start</th><th>Accounts</th><th>Uses</th><th>Variants</th><th>Exact copies</th>{cth}<th>Samples</th></tr>')
+    for b in PB[:25]: w(f'<tr><td class="t">{esc(b["start"][5:16])}</td><td>{len(b["accounts"])}<br><small>{esc(", ".join(b["accounts"][:6]))}{"…" if len(b["accounts"]) > 6 else ""}</small></td><td>{b["uses"]}</td><td>{b["variants"]}</td><td>{b["exact"]}</td>{ctd(b["start"])}<td>{"<br>".join(esc(x) for x in b["samples"][:2])}</td></tr>')
+    if not PB: w('<tr><td colspan="7">None.</td></tr>')
+    w(f'</table><div class="how"><b>How:</b> word-pair shingles, Jaccard similarity of at least {cfg.get("burst", {}).get("paraphrase_threshold", 0.35)} (a light rewrite scores about 0.4, an unrelated post on the same topic about 0.1), clustered, then a {cfg.get("burst", {}).get("paraphrase_window_minutes", 60)}-minute window. This is the 2026 version of copy-paste: a language model writes every variant, so the exact-text rule sees nothing and this one sees the cluster. "Variants" is how many distinct wordings; "exact copies" is the size of the largest identical group inside it. A shingle shared by more than 200 posts is treated as the topic\'s vocabulary and ignored.</div></div>')
+
+    # ---- accounts with signals
+    AF = A.account_features(posts, now=now, windows=wins, burst_accounts=burst_accounts, min_posts=int(cfg.get('accounts', {}).get('min_posts', 3)), top=int(cfg.get('accounts', {}).get('top', 40)))
+    w('<h3 id="accounts">Accounts, with signals</h3>')
+    flagged = [p for p in posts if p['author'] in {r['account'] for r in AF if len(r['signals']) >= 2}]
+    if flagged:
+        prof = A.hour_profile(flagged); hm = max(prof['hours'] + [1]); allp = A.hour_profile(posts)
+        w(f'<div class="chart"><h4>Posting hour, UTC, accounts with 2+ signals · {len(flagged):,} posts · tightest 8-hour band {prof["band_start"]:02d}:00 to {prof["band_end"]:02d}:00 holds {pct(prof["band_share"])}; all posts {pct(allp["band_share"])}</h4><div class="bars">')
+        for h, n in enumerate(prof['hours']): w(f'<div class="{"z" if not n else ""}" style="height:{int(n / hm * 138)}px" title="{h:02d}:00 UTC: {n}"><span>{n or ""}</span></div>')
+        w('</div><div class="xl">' + ''.join(f'<div>{h:02d}</div>' for h in range(24)) + '</div><div class="how"><b>How:</b> a run operation posts during its operators\' working hours and goes quiet on their holidays; a real audience is spread across its own time zones. If the tightest eight-hour band holds most of the flagged accounts\' posting and the topic\'s audience is somewhere else, ask what time zone that band is nine to five in. Compare the two shares: an hour bought complete adds posts to that hour for everyone, so the flagged accounts\' band only means something when it is well above the all-posts share.</div></div>')
+    w('<div class="pan"><h4>Ranked by number of signals, then volume</h4><table class="tt"><tr><th>Account</th><th>Posts</th><th>Signals</th><th>Replies</th><th>Med. likes</th><th>Links</th><th>Langs</th><th>8-h band</th></tr>')
+    for r in AF:
+        facts = ' · '.join(x for x in [f'{num(r["age_days"])} d old' if r['age_days'] is not None else '', f'{num(r["followers"])} followers' if r['followers'] is not None else '', f'{num(r["total_posts"])} posts lifetime' if r['total_posts'] is not None else ''] if x)
+        w(f'<tr><td>{esc(r["account"])}<br><small style="color:#9ca3af">{esc(r["source"])}{(" · " + esc(facts)) if facts else ""}</small></td><td>{r["posts"]}</td><td>{esc(", ".join(r["signals"])) or "–"}</td><td>{pct(r["reply_share"])}{("<br><small>→ " + esc(r["reply_to"]) + "</small>") if r["reply_to"] else ""}</td><td>{num(r["median_likes"])}</td><td>{pct(r["link_share"])}{("<br><small>" + esc(r["top_domain"]) + "</small>") if r["top_domain"] else ""}</td><td>{esc(r["langs"])}</td><td>{esc(r["band"])}<br><small>{pct(r["band_share"])}</small></td></tr>')
+    if not AF: w('<tr><td colspan="8">No account has enough posts yet.</td></tr>')
+    w('</table><div class="how"><b>Signals, each a plain rule:</b> <code>replies</code> 80%+ of posts are replies (reply hijacking); <code>no_audience</code> median likes zero and under 100 followers; <code>young</code> account under 30 days old; <code>dormant_then_active</code> account over a year old with under 100 lifetime posts, now busy here; <code>office_hours</code> 90%+ of posts inside one 8-hour band; <code>one_domain</code> 80%+ of posts carry a link and 80%+ of links go to one domain; <code>multilingual</code> three or more languages at 10%+ each; <code>peak_only</code> every post falls inside an hour read complete; <code>co_posted</code> in at least one burst above. More signals is a reason to look, not a conclusion: a vulnerability feed trips four of these and is exactly what it looks like.</div></div>')
+    CC = A.creation_clusters(posts, {r['account'] for r in AF if len(r['signals']) >= 2})
+    if CC:
+        w('<div class="pan"><h4>Account creation weeks over-represented among flagged accounts</h4><table class="tt"><tr><th>ISO week</th><th>Flagged accounts created</th><th>Share of flagged</th><th>All accounts created</th><th>Share of all</th><th>Lift</th></tr>')
+        for c in CC: w(f'<tr><td>{esc(c["week"])}</td><td>{c["subset"]}</td><td>{pct(c["subset_share"])}</td><td>{c["all"]}</td><td>{pct(c["all_share"])}</td><td>{c["lift"]:.1f}</td></tr>')
+        w('</table><div class="how"><b>How:</b> accounts created in a batch wake up for the same topic. A week where the flagged accounts\' creation dates are three or more times over-represented, with at least three of them, is worth a look at the accounts themselves.</div></div>')
+    XP = A.cross_platform(posts, int(cfg.get('burst', {}).get('cross_platform_minutes', 30)))
+    w('<div class="pan"><h4>Cross-platform seeding: the same text or link on two or more platforms inside the window</h4><table class="tt"><tr><th>Start</th><th>Kind</th><th>Platforms</th><th>Posts</th><th>Accounts</th><th>Key</th></tr>')
+    for r in XP[:20]: w(f'<tr><td class="t">{esc(r["start"][5:16])}</td><td>{esc(r["kind"])}</td><td>{esc(", ".join(r["sources"]))}</td><td>{r["posts"]}</td><td><small>{esc(", ".join(r["accounts"][:6]))}{"…" if len(r["accounts"]) > 6 else ""}</small></td><td>{esc(r["key"][:100])}</td></tr>')
+    if not XP: w('<tr><td colspan="6">None' + (' (only one platform in this database).' if len(sources) < 2 else '.') + '</td></tr>')
+    w('</table><div class="how"><b>How:</b> normalized text and exact links, matched across sources within the window. Almost nobody can see this because almost nobody collects more than one platform. A message seeded on three platforms minutes apart was placed, not shared.</div></div>')
+
+    # ---- infrastructure
+    INF = A.infrastructure(posts)
+    w('<h3 id="infrastructure">Shared link infrastructure</h3><div class="grid2"><div class="pan"><h4>Tracking parameters carried by several accounts</h4><table class="tt"><tr><th>Parameter</th><th>Accounts</th></tr>')
+    for k, accts in INF['params']: w(f'<tr><td class="t">{esc(k[:40])}</td><td>{len(accts)}<br><small>{esc(", ".join(accts[:6]))}{"…" if len(accts) > 6 else ""}</small></td></tr>')
+    if not INF['params']: w('<tr><td colspan="2">None shared by three or more accounts.</td></tr>')
+    w('</table><div class="how"><b>How:</b> query-string parameters on the links in posts, grouped by name and value. A campaign\'s links carry its tracking token (<code>utm_campaign=…</code>, a referral code, a short code); people pasting from the same source share it, people typing a URL do not. Share-button boilerplate (<code>utm_source=twitter</code>, <code>utm_medium=social</code>) is dropped, and parameters that always travel together on the same accounts are one row.</div></div>')
+    w('<div class="pan"><h4>Shorteners and domains by number of accounts</h4><table class="tt"><tr><th>Domain</th><th>Accounts</th></tr>')
+    for d, accts in INF['shorteners']: w(f'<tr><td>{esc(d)} <small>(shortener)</small></td><td>{len(accts)}</td></tr>')
+    for d, n in INF['domains'][:15]: w(f'<tr><td>{esc(d)}</td><td>{n}</td></tr>')
+    w('</table><div class="how"><b>How:</b> shorteners hide the destination and are worth expanding by hand; a domain linked by many accounts is the pivot to WHOIS, certificates and hosting.</div></div></div>')
+
     # ---- candidates (snowball)
     C = A.candidates(posts, tags, top=int(cfg.get('discover', {}).get('show', 25)), min_posts=int(cfg.get('discover', {}).get('min_posts', 3)))
     w('<h3 id="candidates">Candidate tags not yet tracked</h3><div class="pan"><h4>Tags riding along with what you track</h4><table class="tt"><tr><th>Tag</th><th>Posts</th><th>Accounts</th><th>Per account</th><th>Rides with</th></tr>')
@@ -163,18 +237,11 @@ def render(store, cfg, now=None):
     if not C: w('<tr><td colspan="5">Nothing beyond the tracked tags yet.</td></tr>')
     w('</table><div class="how"><b>How:</b> every hashtag in the collected posts that is not already tracked, ranked by how many distinct accounts carry it. Many accounts means the topic has spread and the tag is worth tracking; many posts from few accounts means someone is pushing it, which is a different reason to track it. <code>python -m topicstream discover --add 2</code> appends the top two to the config; <code>discover.auto</code> lets watch mode do it on its own, capped by <code>discover.max_tags</code>, because every added tag costs what any tag costs on X.</div></div>')
 
-    # ---- bursts
-    B = A.bursts(posts, int(cfg.get('burst', {}).get('window_minutes', 10)), int(cfg.get('burst', {}).get('minimum', 3)))
-    w('<h3 id="bursts">Same-text bursts (co-posting)</h3><div class="pan"><h4>Identical text from several accounts inside the window</h4><table class="tt"><tr><th>Start</th><th>Accounts</th><th>Uses</th><th>Text</th></tr>')
-    for b in B[:25]: w(f'<tr><td>{esc(b["start"][5:16])}</td><td>{len(b["accounts"])}<br><small>{esc(", ".join(b["accounts"][:6]))}{"…" if len(b["accounts"]) > 6 else ""}</small></td><td>{b["uses"]}</td><td>{esc(b["text"])}</td></tr>')
-    if not B: w('<tr><td colspan="4">None at this window and minimum. Press releases, bots sharing the same headline, and bridges that mirror one feed into many accounts are what usually show up here.' + (' X posts here are a sample, and a sparse sample rarely catches two copies of the same text inside ten minutes even when the copying is real; buy the peak hour complete to test for it.' if sampled else '') + '</td></tr>')
-    w(f'</table><div class="how"><b>How:</b> the co-posting rule: strip links, hashtags and mentions, group by the remaining text, slide a {cfg.get("burst", {}).get("window_minutes", 10)}-minute window, report groups with at least {cfg.get("burst", {}).get("minimum", 3)} distinct accounts. Reposts excluded.</div></div>')
-
     # ---- sources
     w(f'<h3 id="sources">Sources, costs and what each one leaves out</h3><div class="pan"><h4>Collection runs · X spend recorded in this database: ${xspent:.2f}</h4><table class="tt"><tr><th>Started</th><th>Finished</th><th>Notes</th></tr>')
-    for r in runs[-10:]: w(f'<tr><td>{esc(r["started_utc"])}</td><td>{esc(r["finished_utc"] or "running")}</td><td>{esc(json.dumps(json.loads(r["notes"]) if r["notes"] else {}, ensure_ascii=False))}</td></tr>')
+    for r in runs[-10:]: w(f'<tr><td class="t">{esc(r["started_utc"])}</td><td class="t">{esc(r["finished_utc"] or "running")}</td><td>{esc(json.dumps(json.loads(r["notes"]) if r["notes"] else {}, ensure_ascii=False))}</td></tr>')
     meters = [json.loads(r['notes'])['x_meter_before'] for r in runs if r['notes'] and 'x_meter_before' in json.loads(r['notes'])]
-    w('</table>' + (f'<div class="how"><b>Two ledgers:</b> the tool\'s ledger above counts every post X returned, ${xspent:.2f}. X\'s own meter (<code>GET /2/usage/tweets</code>) counts unique posts per billing cycle; it read {meters[0]:,} at this database\'s first run and {meters[-1]:,} at its latest, so re-reads between runs cost nothing. The invoice follows the meter.</div>' if meters else '') + '</div>')
+    w('</table>' + (f'<div class="how"><b>Two ledgers:</b> the tool\'s ledger above counts every post X returned, ${xspent:.2f}. X\'s own meter (<code>GET /2/usage/tweets</code>) counts unique posts per billing cycle; it read {meters[0]:,} at the first run here that recorded it and {meters[-1]:,} at the latest, so re-reads between runs cost nothing. The invoice follows the meter.</div>' if meters else '') + '</div>')
     w('''<div class="pan"><h4>Platform notes</h4><div style="padding:10px 14px;font-size:13px">
 <p><b>Mastodon.</b> No credentials. <code>/api/v1/tags/{name}</code> gives seven days of uses and accounts; <code>/api/v1/timelines/tag/{name}</code> gives the posts, 40 a page. Each server reports only what federated to it, so poll several and de-duplicate on the post URI (this tool does). Some servers require a token for public timelines and answer 401 or 422; the run log says which.</p>
 <p><b>Bluesky.</b> Free app password required since the public AppView stopped serving <code>app.bsky.feed.searchPosts</code> unauthenticated. Search returns original posts only, so uses are undercounted relative to the other two; <code>hitsTotal</code> is approximate. For a true live stream, the Jetstream firehose is public and free (websocket), and is the next feature to add.</p>

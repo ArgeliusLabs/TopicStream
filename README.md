@@ -101,4 +101,4 @@ python -m compileall -q topicstream
 
 Tests are offline, except for loopback HTTP used to test the local UI API. The optional course export test skips unless `TOPICSTREAM_SAMPLE_CSV` points to that dataset. CI checks Python 3.9 and 3.12 on Windows and Linux. See [validation](docs/validation.md), [architecture](docs/architecture.md), and [remaining work](docs/roadmap.md).
 
-This release has synthetic validation and mocked API-shape tests. It has not established real-world precision/recall, and live credentialed provider collection must be checked in your environment before operational use.
+This release has synthetic validation, mocked API-shape tests, and a [live X pilot on Singapore haze](docs/live-pilot-2026-11-05.md). The pilot exercised authenticated counts/search, pagination resume, full-length posts, analysis, and reporting. It has not established real-world precision/recall. Provider billing reconciliation and live Bluesky/Mastodon acceptance remain to be checked.

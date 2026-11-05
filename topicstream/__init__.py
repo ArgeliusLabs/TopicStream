@@ -6,4 +6,4 @@ uses-per-account ratio, co-occurring tags, shared links, and same-text bursts.
 
 Standard library only. Mastodon needs no credentials. Bluesky needs a free app password. X is pay-per-use.
 """
-__version__ = '0.3.0'
+__version__ = '0.3.1'

@@ -22,7 +22,7 @@ For example, at the supplied estimate, a page requesting 100 posts with author p
 
 Paid requests have no hidden HTTP retry loop. A field-name compatibility retry is separately reserved and the first failed request remains uncertain. Other failures require another collection pass. Prices must be finite and nonnegative; zero is allowed for explicitly configured mock/free use and provides no spending protection against an incorrectly priced provider.
 
-`estimate` is not always offline: when credentials exist it probes counts through the same guarded request path. `peak --dry-run` is offline and only describes windows already represented in stored counts. `usage` prints the provider meter and local estimate separately without promising reconciliation or unique-post billing semantics.
+`estimate` is not always offline: when credentials exist it probes counts through the same guarded request path. `peak --dry-run` is offline and only describes windows already represented in stored counts. `usage` prints the provider post meter, [credit balance in USD](https://docs.x.com/x-api/usage/get-usage-credits) when accessible, and local estimate separately without promising reconciliation or unique-post billing semantics. Capture a balance before and after collection; meter updates may lag, and simultaneous activity from other tools can affect the comparison.
 
 `read_mode: on_alert` monitors counts and requests each closed hour that trips a rule. Later qualifying hours are not suppressed by the first alert. Partial windows remain retryable; only exhausted windows for the same query are skipped. `window_cap` bounds each pass, and archive reads are selected for historical windows. Full-archive access depends on the provider account.
 

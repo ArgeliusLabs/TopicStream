@@ -1,5 +1,12 @@
 # Changes
 
+## 0.3.1 (November 5, 2026)
+
+- Live Singapore haze pilot: 285 retrieved posts; 284 text-matching posts from 238 accounts; no recurring group at the default thresholds. This is an operational check, not an accuracy benchmark. See `docs/live-pilot-2026-11-05.md`.
+- Request and retain full-length X note text and entities, supporting both `note_tweet` and `note_post`. The pilot recovered 17 posts otherwise excluded because their previews lacked the term.
+- `usage` also reports the provider's credit balance when available. Balance readings and conservative local estimates remain distinct.
+- Avoid binary floating-point tails adding a micro-dollar to resource-cost settlements.
+
 ## 0.3.0 (November 2026)
 
 - Local browser workspace: editable topic plans, saved cases, source status, imports, jobs/cancellation, group graph/timeline/evidence, reviews, JSON exports, and standalone reports.

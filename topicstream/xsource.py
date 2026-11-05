@@ -9,6 +9,7 @@ import re
 import urllib.error
 import urllib.parse
 from datetime import timedelta
+from decimal import Decimal
 from .sources import Http, Post, iso, utcnow, parse_time, queries, matches, tags_in
 from .identity import digest
 from .store import BudgetExceeded
@@ -21,7 +22,7 @@ class CollectionCancelled(RuntimeError):
 class X:
     name = 'x'
     COUNT_RECENT, COUNT_ALL, POST_READ, USER_READ = 0.005, 0.010, 0.005, 0.010
-    FIELDS = 'created_at,entities,public_metrics,referenced_tweets,lang,author_id,in_reply_to_user_id'
+    FIELDS = 'created_at,entities,note_tweet,public_metrics,referenced_tweets,lang,author_id,in_reply_to_user_id'
 
     def __init__(self, http, log=print, max_posts_per_tag=200, budget_usd=2.0, bearer=None,
                  query_extra='', archive=False, spent_before=0.0, cursors=None, save_cursor=None,
@@ -68,6 +69,12 @@ class X:
         # Our only expansion is author_id: at most one user resource per post.
         return self.prices['post_read'] + self.prices['user_read']
 
+    def resource_cost(self, posts, users=0):
+        # Decimal multiplication avoids a binary-float tail becoming an extra
+        # micro-dollar when Store conservatively rounds a reservation upward.
+        return float(posts * Decimal(str(self.prices['post_read']))
+                     + users * Decimal(str(self.prices['user_read'])))
+
     def estimate(self, tags, terms=(), days=7):
         reads = max(10, self.max_posts)
         if self.sample_per_day:
@@ -81,8 +88,8 @@ class X:
         expansions = set(q.get('expansions', '').split(',')) - {''}
         if paid and not counted and expansions - {'author_id'}:
             raise ValueError('Unpriced search expansion; only author_id is supported')
-        unit_price = self.search_unit_price() if 'author_id' in expansions else self.prices['post_read']
-        price = self.count_price() if counted else int(q.get('max_results', 0)) * unit_price
+        limit = int(q.get('max_results', 0))
+        price = self.count_price() if counted else self.resource_cost(limit, limit if 'author_id' in expansions else 0)
         reservation = None
         if paid:
             if self.store:
@@ -101,15 +108,14 @@ class X:
                 body=exc.read().decode('utf-8','replace')[:1000]
                 if 'fields' in body:
                     self.fields_param='post.fields'
-                    retry=dict(q); retry['post.fields']=retry.pop('tweet.fields').replace('referenced_tweets','referenced_posts')
+                    retry=dict(q); retry['post.fields']=retry.pop('tweet.fields').replace('referenced_tweets','referenced_posts').replace('note_tweet','note_post')
                     # Compatibility retry is a separate, fully reserved request.
                     return self._get(url,retry)
             raise
         actual = 0
         if paid:
-            actual = self.count_price() if counted else (
-                len(result[0].get('data', [])) * self.prices['post_read']
-                + len(result[0].get('includes', {}).get('users', [])) * self.prices['user_read'])
+            actual = self.count_price() if counted else self.resource_cost(
+                len(result[0].get('data', [])), len(result[0].get('includes', {}).get('users', [])))
         self.spent += actual
         if reservation: self.store.settle_request(reservation, actual, iso(utcnow()))
         return result
@@ -177,7 +183,7 @@ class X:
                 # API minimum is ten. Budget reserves all ten even if the soft cap is lower.
                 limit = max(10,min(500 if self.archive else 100,cap-len(out)))
                 q = {'query':self.query(raw,kind),'max_results':limit,'start_time':state['start'],'end_time':state['end'],
-                     self.fields_param:self.FIELDS.replace('referenced_tweets','referenced_posts') if self.fields_param=='post.fields' else self.FIELDS,'expansions':'author_id','user.fields':'created_at,public_metrics,username'}
+                     self.fields_param:self.FIELDS.replace('referenced_tweets','referenced_posts').replace('note_tweet','note_post') if self.fields_param=='post.fields' else self.FIELDS,'expansions':'author_id','user.fields':'created_at,public_metrics,username'}
                 if state.get('next_token'): q['next_token'] = state['next_token']
                 j,_ = self._get(self._ep('search'),q)
                 if j.get('errors'): raise RuntimeError('Search API reported partial errors; interval remains incomplete')
@@ -256,6 +262,9 @@ class X:
         users={u['id']:u for u in j.get('includes',{}).get('users',[])}; out=[]
         for t in j.get('data',[]):
             u=users.get(t['author_id'],{}); ent=t.get('entities',{}); pm=t.get('public_metrics',{})
+            note=t.get('note_post') or t.get('note_tweet') or {}
+            text=note.get('text') or t['text']
+            if note.get('text'): ent=note.get('entities') or ent
             refs=t.get('referenced_posts',t.get('referenced_tweets',[]))
             ref=next((r for r in refs if r.get('type')=='retweeted'),None) or next(iter(refs),{})
             rt=ref.get('type')=='retweeted'; reply=any(r.get('type')=='replied_to' for r in refs) or bool(t.get('in_reply_to_user_id'))
@@ -264,9 +273,11 @@ class X:
                 author_created_utc=iso(parse_time(u['created_at'])) if u.get('created_at') else None,
                 author_followers=(u.get('public_metrics') or {}).get('followers_count'),author_posts=(u.get('public_metrics') or {}).get('post_count',(u.get('public_metrics') or {}).get('tweet_count')),
                 is_reply=reply,reply_to=t.get('in_reply_to_user_id'),reference_type={'retweeted':'repost','quoted':'quote','replied_to':'reply'}.get(ref.get('type')),referenced_post_id=ref.get('id'),
-                text=t['text'],lang=t.get('lang'),is_repost=rt,reposts=pm.get('repost_count',pm.get('retweet_count')),likes=pm.get('like_count'),replies=pm.get('reply_count'),
-                url=f'https://x.com/i/status/{t["id"]}',matched=matches(t['text'],tags,terms),tags=sorted({h['tag'].lower() for h in ent.get('hashtags',[])}|set(tags_in(t['text']))),
+                text=text,lang=t.get('lang'),is_repost=rt,reposts=pm.get('repost_count',pm.get('retweet_count')),likes=pm.get('like_count'),replies=pm.get('reply_count'),
+                url=f'https://x.com/i/status/{t["id"]}',matched=matches(text,tags,terms),tags=sorted({h['tag'].lower() for h in ent.get('hashtags',[])}|set(tags_in(text))),
                 links=sorted(set(l for l in links if l)),collected_utc=iso(now)))
         return out
 
     def usage(self): return self._get('https://api.x.com/2/usage/tweets',{})[0]
+
+    def credits(self): return self._get('https://api.x.com/2/usage/credits',{})[0]

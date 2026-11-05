@@ -1,5 +1,10 @@
 # Changes
 
+## 0.2.1 (November 2026)
+
+- `import-csv --accounts profiles.csv`: join account age, followers and lifetime posts from a profiles export, so the account signals and creation clusters work on imported data; `in_reply_to` is resolved to the replied account when it names a post in the same file.
+- The report's platform notes describe only the sources the database holds, and say so for imported exports.
+
 ## 0.2.0 (November 2026)
 
 The coordination layer, and a cheaper way to pay for it.

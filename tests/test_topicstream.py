@@ -88,6 +88,13 @@ class ExerciseDataTests(unittest.TestCase):
             b = A.bursts(posts, 10, 5); self.assertGreaterEqual(len(b), 8)        # the nine pushes, give or take the spelling split
             co = A.cooccurrence(posts, '#telukrawah'); self.assertIn('#sekawandeal', [c['tag'] for c in co])
             html = R.render(s, cfg, now=datetime(2026, 3, 9, tzinfo=timezone.utc)); self.assertIn('ALERT', html)
+            self.assertIn('Imported export (ciap)', html); self.assertNotIn('<b>Mastodon.</b>', html)                              # platform notes follow what the database holds
+            prof = CIAP.parent / 'ciap_account_profiles_2026-03-09.csv'
+            if prof.exists():
+                cfg2 = dict(cfg, db=str(Path(d) / 'c2.sqlite')); import_csv(cfg2, str(CIAP), 'ciap', log=lambda *a: None, accounts=str(prof))
+                rows = {r['account']: r for r in A.account_features(Store(cfg2['db']).posts(), now=datetime(2026, 3, 9, tzinfo=timezone.utc))}
+                self.assertIsNotNone(rows['nurani_pesisir']['age_days']); self.assertIn('dormant_then_active', rows['nurani_pesisir']['signals'])
+                self.assertEqual(rows['warga_rawa22']['reply_to'], 'ombak_merah')                                                  # in_reply_to resolved from a post id to its author
 
 if __name__ == '__main__': unittest.main()
 
@@ -219,6 +226,20 @@ class CountsThrottleTests(unittest.TestCase):
         rows = x.tag_days(['Election2026'], NOW, NOW - timedelta(days=7)); self.assertEqual(rows, []); self.assertEqual(http.requests, 0); self.assertEqual(x.spent, 0)
         x2 = X(http, log=lambda *a: None, max_posts_per_tag=10, budget_usd=5, bearer='tok', counts_every_minutes=60, counts_fetched={'#election2026': iso(NOW - timedelta(minutes=61))}, save_counts_fetched=lambda l, w: saved.__setitem__(l, w))
         rows = x2.tag_days(['Election2026'], NOW, NOW - timedelta(days=7)); self.assertEqual(len(rows), 7); self.assertEqual(saved, {'#election2026': iso(NOW)}); self.assertAlmostEqual(x2.spent, 0.01)
+
+class ImportJoinTests(unittest.TestCase):
+    def test_accounts_join_and_reply_resolution(self):
+        with tempfile.TemporaryDirectory() as d:
+            posts = Path(d) / 'p.csv'; prof = Path(d) / 'a.csv'
+            posts.write_text('post_id,handle,timestamp_utc,content_type,lang,text,link,in_reply_to,likes,reposts,replies\n'
+                             'P-1,alice,2026-02-03 02:47:00,post,en,hello #t,https://e.example/x,,1,0,0\n'
+                             'P-2,bob,2026-02-03 02:48:00,reply,en,@alice hi,,P-1,0,0,0\n'
+                             'P-3,carol,2026-02-03 02:49:00,reply,en,hey,,@dave,0,0,0\n', encoding='utf-8')
+            prof.write_text('handle,created_utc,followers,posts_total\nalice,2024-01-01 00:00:00,12,30\nbob,2026-02-01 00:00:00,0,3\n', encoding='utf-8')
+            cfg = dict(tags=['t'], terms=[], days=7, db=str(Path(d) / 'c.sqlite'), report=str(Path(d) / 'r.html')); import_csv(cfg, str(posts), 'ex', log=lambda *a: None, accounts=str(prof))
+            P = {p['author']: p for p in Store(cfg['db']).posts()}
+            self.assertEqual(P['alice']['author_followers'], 12); self.assertEqual(P['alice']['author_posts'], 30); self.assertTrue(P['alice']['author_created_utc'].startswith('2024-01-01'))
+            self.assertTrue(P['bob']['is_reply']); self.assertEqual(P['bob']['reply_to'], 'alice'); self.assertEqual(P['carol']['reply_to'], 'dave'); self.assertIsNone(P['carol']['author_followers'])
 
 class PeakTests(unittest.TestCase):
     def _cfg(self, d, **x):

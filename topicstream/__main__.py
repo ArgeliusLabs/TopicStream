@@ -4,7 +4,7 @@
   python -m topicstream report   [--config config.json]      write the HTML report from what is stored
   python -m topicstream run      [--config config.json]      both
   python -m topicstream watch    [--config config.json] [--every 15]   collect+report on a loop, forever (Ctrl-C stops)
-  python -m topicstream import-csv posts.csv --source ciap   load a posts export with the Day 6 column names (see README)
+  python -m topicstream import-csv posts.csv --source ciap [--accounts profiles.csv]   load a posts export (Day 6 column names, see README), optionally joined to a profiles export
   python -m topicstream estimate [--config config.json]      what a run would cost on X, with live 7-day volumes if a token is present
   python -m topicstream usage    [--config config.json]      what X says the project has consumed this billing cycle
   python -m topicstream discover [--config config.json] [--add N]   tags riding along with what you track; --add N appends the top N to the config
@@ -137,16 +137,35 @@ def write_report(cfg, log=print):
     store = Store(cfg['db']); out = Path(cfg['report']); out.write_text(R.render(store, cfg), encoding='utf-8')
     log(f'report: {out} ({out.stat().st_size // 1024} KB, {len(store.posts()):,} posts)'); return out
 
-def import_csv(cfg, path, source, log=print):
-    """Load a posts CSV with the Day 6 export columns (timestamp_utc, handle, text, link, content_type, likes, reposts, replies, lang, post_id)."""
-    store = Store(cfg['db']); now = iso(utcnow()); rows = []
-    with open(path, encoding='utf-8') as f:
-        for r in csv.DictReader(f):
-            text = r.get('text', ''); link = r.get('link') or ''
-            rows.append(Post(source=source, instance=source, post_id=r.get('post_id') or f"{r['handle']}-{r['timestamp_utc']}", created_utc=iso(parse_time(r['timestamp_utc'].replace(' ', 'T') + ('Z' if 'Z' not in r['timestamp_utc'] and '+' not in r['timestamp_utc'] else ''))),
-                             author=r['handle'], text=text, lang=r.get('lang'), is_repost=r.get('content_type', 'post') == 'repost',
-                             reposts=int(r['reposts']) if r.get('reposts') else None, likes=int(r['likes']) if r.get('likes') else None, replies=int(r['replies']) if r.get('replies') else None,
-                             is_reply=bool(r.get('in_reply_to')), matched=matches(text, cfg['tags'], cfg['terms']), tags=tags_in(text), links=[link] if link else [], collected_utc=now))
+def _pick(r, *names):
+    for n in names:
+        if r.get(n) not in (None, ''): return r[n]
+    return None
+
+def import_csv(cfg, path, source, log=print, accounts=None):
+    """Load a posts CSV with the Day 6 export columns (timestamp_utc, handle, text, link, content_type, likes, reposts, replies, lang,
+    post_id, in_reply_to). With --accounts, a profiles CSV (handle, created_utc, followers, posts_total; a few aliases accepted) fills
+    account age, followers and lifetime posts, which the account signals and creation clusters need."""
+    store = Store(cfg['db']); now = iso(utcnow()); rows = []; prof = {}
+    if accounts:
+        with open(accounts, encoding='utf-8') as f:
+            for r in csv.DictReader(f):
+                h = _pick(r, 'handle', 'username', 'screen_name', 'author')
+                if h: prof[h.lstrip('@')] = r
+        log(f'account profiles: {len(prof)} from {accounts}')
+    def when(v): return iso(parse_time(v.replace(' ', 'T') + ('Z' if 'Z' not in v and '+' not in v else '')))
+    with open(path, encoding='utf-8') as f: raw = list(csv.DictReader(f))
+    by_id = {r['post_id']: r['handle'] for r in raw if r.get('post_id')}          # in_reply_to names a post; the signal wants the account
+    for r in raw:
+        text = r.get('text', ''); link = r.get('link') or ''; a = prof.get(r['handle'].lstrip('@'), {}); parent = r.get('in_reply_to') or ''
+        replied = by_id.get(parent) or (parent.lstrip('@') if parent and not parent.startswith('P-') and ' ' not in parent else None)
+        created = _pick(a, 'created_utc', 'created_at', 'account_created', 'joined'); followers = _pick(a, 'followers', 'followers_count'); total = _pick(a, 'posts_total', 'statuses_count', 'posts_count', 'post_count')
+        rows.append(Post(source=source, instance=source, post_id=r.get('post_id') or f"{r['handle']}-{r['timestamp_utc']}", created_utc=when(r['timestamp_utc']),
+                         author=r['handle'], text=text, lang=r.get('lang'), is_repost=r.get('content_type', 'post') == 'repost',
+                         reposts=int(r['reposts']) if r.get('reposts') else None, likes=int(r['likes']) if r.get('likes') else None, replies=int(r['replies']) if r.get('replies') else None,
+                         is_reply=bool(parent) or r.get('content_type') == 'reply', reply_to=replied,
+                         author_created_utc=when(created) if created else None, author_followers=int(followers) if followers else None, author_posts=int(total) if total else None,
+                         matched=matches(text, cfg['tags'], cfg['terms']), tags=tags_in(text), links=[link] if link else [], collected_utc=now))
     n = store.add_posts(rows); log(f'imported {len(rows)} rows, {n} new, from {path}')
 
 def estimate(cfg, log=print):
@@ -206,7 +225,7 @@ def main(argv=None):
     ap.add_argument('command', choices=['collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak'])
     ap.add_argument('path', nargs='?', help='CSV path for import-csv')
     ap.add_argument('--config', default='config.json'); ap.add_argument('--every', type=int, default=15, help='minutes between collections in watch mode')
-    ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
+    ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--accounts', help='import-csv: a profiles CSV (handle, created_utc, followers, posts_total) to fill account age, followers and lifetime posts'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
     ap.add_argument('--hours', type=int, default=1, help='peak: how many of the busiest hours per term to buy complete'); ap.add_argument('--at', help='peak: one specific hour, e.g. 2026-10-21T14:00')
     ap.add_argument('--tag', help='peak: only this term (as the report labels it, e.g. #php2shell or php2shell)'); ap.add_argument('--dry-run', action='store_true', help='peak: show the plan and cost, buy nothing')
     a = ap.parse_args(argv); cfg = load_cfg(a.config)
@@ -219,7 +238,7 @@ def main(argv=None):
     elif a.command == 'run': collect(cfg); write_report(cfg)
     elif a.command == 'import-csv':
         if not a.path: sys.exit('import-csv needs a path');
-        import_csv(cfg, a.path, a.source); write_report(cfg)
+        import_csv(cfg, a.path, a.source, accounts=a.accounts); write_report(cfg)
     elif a.command == 'watch':
         while True:
             try:

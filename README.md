@@ -40,7 +40,7 @@ python -m topicstream watch --every 15     # collect and report on a loop; alert
 python -m topicstream peak --hours 2       # buy the busiest hours COMPLETE on X (every post, every account); --dry-run prices it first
 python -m topicstream discover [--add N]   # tags riding along with what you track; --add appends the top N to the config
 python -m topicstream usage         # what X's own meter says the project has consumed this billing cycle
-python -m topicstream import-csv posts.csv --source mine   # analyze a posts export you already have (columns below)
+python -m topicstream import-csv posts.csv --source mine [--accounts profiles.csv]   # analyze an export you already have (columns below)
 ```
 
 Every command takes `--config path.json`. There are four worked configs in `examples/`.
@@ -122,7 +122,7 @@ On the exercise dataset the tool was built to accompany, the paraphrase rule mer
 
 ## Analyzing an export you already have
 
-`import-csv` loads a CSV with columns `timestamp_utc`, `handle`, `text`, `link`, `content_type` (`post` or `repost`), `likes`, `reposts`, `replies`, `lang` and optionally `post_id` and `in_reply_to`, and runs the same analysis. This is how the tool was validated: on the exercise dataset it was built to accompany, the alert trips in the right minute and all nine coordinated pushes come out as bursts under all three rules.
+`import-csv` loads a CSV with columns `timestamp_utc`, `handle`, `text`, `link`, `content_type` (`post`, `reply` or `repost`), `likes`, `reposts`, `replies`, `lang` and optionally `post_id` and `in_reply_to` (a post id from the same file, or a handle), and runs the same analysis. `--accounts profiles.csv` joins a profiles export on `handle` (`created_utc`, `followers`, `posts_total`; `created_at`, `followers_count` and `statuses_count` are accepted too), which is what the account signals and creation clusters need. The platform notes at the end of the report describe only the sources the database holds. This is how the tool was validated: on the exercise dataset it was built to accompany, the alert trips in the right minute and all nine coordinated pushes come out as bursts under all three rules.
 
 ## Layout
 

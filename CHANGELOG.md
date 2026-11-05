@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.4 (November 2026)
+
+- Daily bars stop at 72px wide, so a three-day database does not draw three slabs.
+
 ## 0.2.3 (November 2026)
 
 - Import-only databases read as what they are: the header shows the export's span, the depth note and the platform-counts panel say "export" rather than "collector", and the posts caveat describes export rows.

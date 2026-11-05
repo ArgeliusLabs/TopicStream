@@ -10,6 +10,8 @@ Existing CLI commands remain. Fixed `start_utc`/`end_utc` are recommended for re
 
 Account counts may change because source-scoped stable IDs replace display handles. Mastodon boosts now represent amplification by the wrapper actor; old rows that discarded those actions cannot be reconstructed without recollection. Age is now evaluated at the event, rather than today. `peak_only` and `office_hours` are removed as suspicion signals; `dormant_then_active` becomes descriptive `low_lifetime_activity`.
 
-The new report distinguishes partial, exhausted, and unverified intervals. Old screenshots under `docs/report-*.png` illustrate 0.2.x and are not current UI or methodological guidance. The historical changelog describes earlier behavior and should be read alongside the 0.3.0 corrections.
+The new report distinguishes partial, exhausted, and unverified intervals. The [report screenshots](report-examples.md) now show 0.3.2 with synthetic data. The historical changelog describes earlier behavior and should be read alongside the current methodology.
+
+Version 0.3.2 adds daily resource-read records, private credit observations, and optional counts-bucket end times. Existing ledger estimates are not rewritten. Deduplication begins with successful reads recorded by the new version; imported rows and older reads cannot safely establish their billing day. `prices.bill_author_expansions` defaults to false even in older configs; set it true to retain the previous conservative author-expansion assumption. The UTC-day boundary is fixed by provider documentation, not the monthly account reset day. Back up databases before upgrading.
 
 The browser workspace creates independent case folders. It does not automatically enroll an arbitrary existing CLI database. Continue reporting that database with the CLI, or import the original CSV into a case with an explicit scope. Never paste API credentials into a topic or CSV.

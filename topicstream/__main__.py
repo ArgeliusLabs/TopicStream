@@ -13,7 +13,7 @@ from .sources import Http, build_sources, utcnow, iso, Post, matches, tags_in, p
 from . import report as R
 from . import analyze as A
 from .scope import collection_bounds, selected_posts, labels
-from .monitor import count_alerts, post_alerts
+from .monitor import count_alerts, post_alerts, alert_scope
 from .identity import digest
 from .store import BudgetExceeded
 
@@ -40,13 +40,14 @@ def collect(cfg, log=print):
         for src in build_sources(local,http,log):
             if cfg.get('_cancelled',lambda:False)(): break
             log(f'Collecting {src.name}')
-            before=len(store.posts()); entry={}
+            before=len(store.posts()); entry={}; credit_before=None; credit_started=False
             try:
                 if hasattr(src,'available') and not src.available():
                     entry['status']='unavailable'; entry['error']='Credentials missing'
                     for tag in tracked(cfg): store.record_coverage(src.name,'',tag,iso(since),iso(until),'unavailable','credentials missing',0,'search',iso(now))
                     continue
                 if src.name=='x':
+                    credit_started=True; credit_before=src.capture_credit(run_id,'before')
                     src.tag_days(cfg['tags'],now,since,cfg['terms'])
                     if xcfg.get('read_mode','always')!='on_alert': src.posts(cfg['tags'],cfg['terms'],since,now)
                     else: log('  Counts-only monitoring; qualifying hours are queued below')
@@ -62,10 +63,12 @@ def collect(cfg, log=print):
                 if src.name!='x' or not src.coverage_rows:
                     for tag in tracked(cfg): store.record_coverage(src.name,'',tag,iso(since),iso(until),'failed',type(exc).__name__,0,'search',iso(now))
             finally:
+                if credit_started: src.finish_credit(run_id,credit_before)
                 if getattr(src,'spent',0): entry['spent_usd']=round(src.spent,6)
                 notes[src.name]=entry
         al=cfg.get('alert',{}); posts,_,_=selected_posts(store,cfg,now)
         for alert in post_alerts(posts,now,int(al.get('window_minutes',30)),int(al.get('uses',200)),float(al.get('ratio',10)),float(al.get('uses_per_account',5)),int(al.get('min_uses',10))):
+            alert['scope_hash']=alert_scope(cfg,since,until)
             if store.add_monitor_alert(alert['source'],alert['tag'],alert['start'],int(al.get('window_minutes',30)),alert,iso(now)):
                 log(f'ALERT {alert["tag"]}: {"; ".join(alert["reasons"])}')
         x=X(http,log,store=store,budget_usd=xcfg.get('budget_usd',2),query_extra=xcfg.get('query_extra',''),archive=xcfg.get('archive',False),prices=xcfg.get('prices'))
@@ -103,6 +106,7 @@ def buy_windows(cfg,store,wanted,log=print,dry=False):
     log(f'{len(plan)} window(s), estimated ${estimate:.4f}; requests also reserve their full page cost before reading')
     if dry or not x.available(): return 0
     run=store.start_run(iso(now)); total=0; errors=[]
+    credit_before=x.capture_credit(run,'before')
     try:
         for label,start,expected in plan:
             kind,raw=by_label[label]; t0=parse_time(start); t1=t0+timedelta(hours=1)
@@ -119,6 +123,7 @@ def buy_windows(cfg,store,wanted,log=print,dry=False):
                 store.add_window('x',label,start,iso(t1),expected,state.get('got',0),iso(now),state.get('status','partial'),state.get('stop_reason',''),state.get('next_token'),fingerprint)
             if errors: break
     finally:
+        x.finish_credit(run,credit_before)
         store.finish_run(run,iso(utcnow()),{'x':{'windows':len(plan),'posts':total,'spent_usd':round(x.spent,6),'errors':errors},'peak':True})
     return total
 
@@ -235,6 +240,13 @@ def usage(cfg, log=print):
     except Exception as exc: log('Credit balance unavailable: ' + type(exc).__name__)
     with Store(cfg['db']) as store:
         log(f'Local reserved or spent estimate: ${store.spent():.4f}. Meter fields are not a verified invoice.')
+        from .xsource import credit_delta
+        observations=store.credit_observations()
+        if observations:
+            run=max(r['run_id'] for r in observations)
+            pair={r['phase']:r['balance'] for r in observations if r['run_id']==run}
+            delta=credit_delta(pair.get('before'),pair.get('after'))
+            log('Last observed account balance decrease: '+('unavailable' if delta is None else f'${delta:.4f}')+'. Account-wide movement, not a reconciled run charge.')
 
 
 def main(argv=None):

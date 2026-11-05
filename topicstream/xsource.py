@@ -19,6 +19,20 @@ class CollectionCancelled(RuntimeError):
     pass
 
 
+def credit_delta(before, after):
+    """Positive means balance decreased. Prefer unclipped prepaid + free funds."""
+    def valid(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if not isinstance(before, dict) or not isinstance(after, dict): return None
+    keys = ('prepaid_balance', 'free_balance')
+    if all(valid(b.get(k)) for b in (before,after) for k in keys):
+        return float(sum(Decimal(str(before[k])) - Decimal(str(after[k])) for k in keys))
+    # A clipped zero total cannot reveal a negative prepaid balance.
+    if all(valid(b.get('total_balance')) and b['total_balance'] > 0 for b in (before,after)):
+        return float(Decimal(str(before['total_balance'])) - Decimal(str(after['total_balance'])))
+    return None
+
+
 class X:
     name = 'x'
     COUNT_RECENT, COUNT_ALL, POST_READ, USER_READ = 0.005, 0.010, 0.005, 0.010
@@ -39,15 +53,19 @@ class X:
         self.sample_per_day, self.sample_windows = int(sample_per_day or 0), max(1, int(sample_windows_per_day or 6))
         self.counts_every, self.counts_fetched = int(counts_every_minutes), dict(counts_fetched or {})
         self.save_counts_fetched = save_counts_fetched or (lambda *args: None)
-        self.prices = {'post_read': self.POST_READ, 'user_read': self.USER_READ, 'counts_recent': self.COUNT_RECENT, 'counts_all': self.COUNT_ALL}
+        self.prices = {'post_read': self.POST_READ, 'user_read': self.USER_READ, 'counts_recent': self.COUNT_RECENT, 'counts_all': self.COUNT_ALL, 'bill_author_expansions': False}
         self.prices.update(prices or {})
-        if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in self.prices.values()):
+        if not isinstance(self.prices['bill_author_expansions'], bool):
+            raise ValueError('bill_author_expansions must be true or false')
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for k,v in self.prices.items() if k != 'bill_author_expansions'):
             raise ValueError('X prices must be nonnegative numbers')
         if not math.isfinite(self.budget) or self.budget<0 or self.max_posts<1: raise ValueError('Invalid budget or post cap')
         self.cancelled = cancelled or (lambda: False)
         self.until = until
         self.scope_key = scope_key
         self.states, self.last_window, self.coverage_rows = {}, {}, []
+        self._seen_resources = set()
+        self._credential_scope = digest({'credential': self.bearer})
 
     def available(self): return bool(self.bearer)
     def _h(self): return {'Authorization': 'Bearer ' + self.bearer}
@@ -67,13 +85,33 @@ class X:
 
     def search_unit_price(self):
         # Our only expansion is author_id: at most one user resource per post.
-        return self.prices['post_read'] + self.prices['user_read']
+        return self.prices['post_read'] + (self.prices['user_read'] if self.prices['bill_author_expansions'] else 0)
 
     def resource_cost(self, posts, users=0):
         # Decimal multiplication avoids a binary-float tail becoming an extra
         # micro-dollar when Store conservatively rounds a reservation upward.
         return float(posts * Decimal(str(self.prices['post_read']))
-                     + users * Decimal(str(self.prices['user_read'])))
+                     + users * Decimal(str(self.prices['user_read'] if self.prices['bill_author_expansions'] else 0)))
+
+    def capture_credit(self, run_id, phase):
+        """Best-effort account observation, never an authoritative run charge."""
+        if not self.available(): return None
+        try:
+            data = self.credits().get('data', {})
+            balance = {k: data[k] for k in ('prepaid_balance','free_balance','total_balance') if k in data}
+            if self.store: self.store.record_credit(run_id, phase, iso(utcnow()), balance)
+            return balance
+        except Exception as exc:
+            self.log('  Credit observation unavailable: ' + type(exc).__name__)
+            return None
+
+    def finish_credit(self, run_id, before):
+        after = self.capture_credit(run_id, 'after')
+        delta = credit_delta(before, after)
+        self.log(f'  Local run estimate: ${self.spent:.4f}; observed account balance decrease: ' +
+                 ('unavailable' if delta is None else f'${delta:.4f}') +
+                 '. Account-wide movement, not a reconciled run charge; delayed charges, other activity, grants or top-ups may affect it.')
+        return delta
 
     def estimate(self, tags, terms=(), days=7):
         reads = max(10, self.max_posts)
@@ -91,9 +129,10 @@ class X:
         limit = int(q.get('max_results', 0))
         price = self.count_price() if counted else self.resource_cost(limit, limit if 'author_id' in expansions else 0)
         reservation = None
+        started = utcnow()
         if paid:
             if self.store:
-                reservation = self.store.reserve_request('x', url, digest(q), price, self.budget, iso(utcnow()))
+                reservation = self.store.reserve_request('x', url, digest(q), price, self.budget, iso(started))
             elif self.spent_before + self.spent + price > self.budget + 1e-9:
                 raise BudgetExceeded(f'x: budget_usd {self.budget:.2f} cannot cover the next request')
         try:
@@ -112,12 +151,26 @@ class X:
                     # Compatibility retry is a separate, fully reserved request.
                     return self._get(url,retry)
             raise
-        actual = 0
+        actual = 0; finished = utcnow()
         if paid:
-            actual = self.count_price() if counted else self.resource_cost(
-                len(result[0].get('data', [])), len(result[0].get('includes', {}).get('users', [])))
+            if counted:
+                actual = self.count_price()
+                if reservation: self.store.settle_request(reservation, actual, iso(finished))
+            else:
+                day = iso(started)[:10] if started.date() == finished.date() else None
+                resources = [('post', p.get('id'), self.prices['post_read']) for p in result[0].get('data', [])]
+                if self.prices['bill_author_expansions']:
+                    resources += [('user', u.get('id'), self.prices['user_read']) for u in result[0].get('includes', {}).get('users', [])]
+                if reservation:
+                    actual = self.store.settle_resources(reservation, self._credential_scope, day, resources, iso(finished))
+                else:
+                    amount = Decimal(0)
+                    for kind, resource_id, rate in resources:
+                        key = (day, kind, resource_id)
+                        if not day or not resource_id or key not in self._seen_resources: amount += Decimal(str(rate))
+                        if day and resource_id: self._seen_resources.add(key)
+                    actual = float(amount)
         self.spent += actual
-        if reservation: self.store.settle_request(reservation, actual, iso(utcnow()))
         return result
 
     def _counts(self, raw, granularity, since, kind='tag'):
@@ -149,7 +202,8 @@ class X:
             rows.extend(current); self.hourly.extend(hours)
             if self.store:
                 self.store.add_tag_days(current)
-                self.store.add_counts('x', hours, iso(now), fingerprint)
+                bounded_hours=[(label,iso(parse_time(a)),n,iso(parse_time(b))) for a,b,n in hour]
+                self.store.add_counts('x', bounded_hours, iso(now), fingerprint)
                 self.store.save_page('x-counts',fingerprint,{'fetched':iso(now)},[])
             else: self.save_counts_fetched(label,iso(now))
             self.log(f'  x {label}: {sum(n for _,_,n in hours):,} API-reported matches; counts refreshed')

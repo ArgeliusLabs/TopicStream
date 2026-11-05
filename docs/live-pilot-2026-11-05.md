@@ -22,11 +22,13 @@ The first pass stopped at 250 posts with partial coverage. A second pass resumed
 
 Initial collection was approximately US$4.02 under the conservative local resource model. A full-text verification reread brought the cumulative estimate to **US$7.98**, across nine paid-endpoint requests: two counts requests and seven search pages. Every ledger request settled. The total includes rereads and repeated author profiles without assuming X's daily deduplication. It is not an invoice; an ordinary first run with full text would not require the verification reread.
 
+**Billing correction, November 5:** the operator subsequently reported console totals and the other activity on the account. Those inventories support no separate author-expansion charge and no charge for the same-day reread. The pilot-only allocation is therefore inferred as `285 × $0.005 + 2 × $0.005 = $1.435`, approximately **US$1.44**. The $7.98 figure is the historical 0.3.1 model's overestimate, not the observed pilot bill. The supplied whole-account arithmetic has a half-cent discrepancy against the stated console total; see [the dated measurements and limits](x-costs.md#measured-account-observations--november-45-2026). The invoice has not been independently inspected.
+
 The post-usage meter updated asynchronously. Credit-balance readings immediately before and after the verification reread were unchanged. A balance baseline was not captured before the initial collection, so an exact debit attributable to the entire pilot cannot be established from these readings. Account identifiers, balances, credentials, raw posts, and analyst evidence are retained locally and are not published in this repository.
 
 ## Fixes prompted by the pilot
 
-1. Before paid requests, account for author-profile expansions as well as posts in reservations and settlements.
+1. Initially reserve for author profiles as well as posts. Subsequent account observations led 0.3.2 to omit expansion charges by default and deduplicate same-UTC-day reads; the conservative expansion option remains configurable.
 2. Request X's full-length note text and entities. This increased text-matching posts from 267 to 284 without adding new post IDs. Both legacy and current field names have regression coverage.
 3. Expose the documented credit-balance endpoint in `usage`, keeping it distinct from estimated costs.
 4. Calculate resource charges with decimal arithmetic before micro-dollar settlement.

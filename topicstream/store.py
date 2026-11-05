@@ -60,6 +60,7 @@ MIGRATIONS = [('posts', 'is_reply', 'INTEGER NOT NULL DEFAULT 0'), ('posts', 're
               ('posts', 'author_uri', 'TEXT'), ('posts', 'reference_type', 'TEXT'), ('posts', 'referenced_post_id', 'TEXT'),
               ('posts', 'original_author', 'TEXT'), ('posts', 'account_key', 'TEXT'),
               ('counts', 'query_hash', "TEXT NOT NULL DEFAULT ''"),
+              ('counts', 'end_utc', 'TEXT'),
               ('windows', 'status', "TEXT NOT NULL DEFAULT 'unverified'"),
               ('windows', 'stop_reason', "TEXT NOT NULL DEFAULT 'legacy record without pagination evidence'"),
               ('windows', 'next_token', 'TEXT'), ('windows', 'query_hash', "TEXT NOT NULL DEFAULT ''")]
@@ -81,6 +82,14 @@ CREATE TABLE IF NOT EXISTS post_snapshots (
   PRIMARY KEY(post_key, collected_utc, content_hash)
 );
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS x_resource_reads (
+  credential_scope TEXT, utc_day TEXT, kind TEXT, resource_id TEXT,
+  PRIMARY KEY(credential_scope, utc_day, kind, resource_id)
+);
+CREATE TABLE IF NOT EXISTS credit_observations (
+  run_id INTEGER, phase TEXT, observed_utc TEXT, balance TEXT,
+  PRIMARY KEY(run_id, phase)
+);
 CREATE TABLE IF NOT EXISTS reviews (
   id INTEGER PRIMARY KEY, group_id TEXT NOT NULL, dataset_hash TEXT NOT NULL,
   created_utc TEXT NOT NULL, assessment TEXT NOT NULL, explanation TEXT NOT NULL, evidence TEXT NOT NULL
@@ -206,7 +215,7 @@ class Store:
     def set_cursor(self, source, tag, cursor, now):
         self.db.execute('INSERT OR REPLACE INTO cursors VALUES (?,?,?,?)', (source, tag, cursor, now)); self.db.commit()
     def add_counts(self, source, rows, now, query_hash=''):
-        self.db.executemany('INSERT OR REPLACE INTO counts(source,tag,start_utc,uses,fetched_utc,query_hash) VALUES (?,?,?,?,?,?)', [(source, tag, start, n, now, query_hash) for tag, start, n in rows]); self.db.commit()
+        self.db.executemany('INSERT OR REPLACE INTO counts(source,tag,start_utc,uses,fetched_utc,query_hash,end_utc) VALUES (?,?,?,?,?,?,?)', [(source, row[0], row[1], row[2], now, query_hash, row[3] if len(row)>3 else None) for row in rows]); self.db.commit()
     def counts(self, source='x'): return [dict(r) for r in self.db.execute('SELECT * FROM counts WHERE source = ? ORDER BY tag, start_utc', (source,))]
     def add_window(self, source, tag, start, end, expected, got, now, status='unverified', stop_reason='', next_token=None, query_hash=''):
         self.db.execute('INSERT OR REPLACE INTO windows(source,tag,start_utc,end_utc,expected,got,fetched_utc,status,stop_reason,next_token,query_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
@@ -243,6 +252,36 @@ class Store:
 
     def settle_request(self, request_id, amount, now):
         self.db.execute("UPDATE request_ledger SET charged_micros=?,finished_utc=?,status='settled' WHERE id=?", (micros(amount),now,request_id)); self.db.commit()
+
+    def settle_resources(self, request_id, scope, day, resources, now):
+        """Expected daily resource cost, atomically recorded with the settlement.
+
+        A missing day disables deduplication (e.g. a request crossing midnight).
+        Imported posts and unresolved requests never establish a previous read.
+        """
+        try:
+            self.db.execute('BEGIN IMMEDIATE')
+            amount = 0
+            for kind, resource_id, price in resources:
+                fresh = True
+                if day and resource_id:
+                    cur = self.db.execute('INSERT OR IGNORE INTO x_resource_reads VALUES (?,?,?,?)',
+                                          (scope, day, kind, str(resource_id)))
+                    fresh = cur.rowcount == 1
+                if fresh: amount += micros(price)
+            self.db.execute("UPDATE request_ledger SET charged_micros=?,finished_utc=?,status='settled' WHERE id=?", (amount,now,request_id))
+            self.db.commit()
+            return amount / 1000000
+        except BaseException:
+            self.db.rollback(); raise
+
+    def record_credit(self, run_id, phase, now, balance):
+        # Account balances are private diagnostics, excluded from evidence exports.
+        self.db.execute('INSERT OR REPLACE INTO credit_observations VALUES (?,?,?,?)',
+                        (run_id,phase,now,json.dumps(balance))); self.db.commit()
+
+    def credit_observations(self):
+        return [dict(r, balance=json.loads(r['balance'])) for r in self.db.execute('SELECT * FROM credit_observations ORDER BY run_id, observed_utc')]
 
     def uncertain_request(self, request_id, detail, now):
         self.db.execute("UPDATE request_ledger SET status='uncertain',detail=?,finished_utc=? WHERE id=?", (str(detail)[:500],now,request_id)); self.db.commit()

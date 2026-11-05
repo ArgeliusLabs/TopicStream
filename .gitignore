@@ -8,3 +8,4 @@ __pycache__/
 *.pyc
 !config.example.json
 topicstream-cases/
+demo-cases/

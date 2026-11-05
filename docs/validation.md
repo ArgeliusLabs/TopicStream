@@ -21,6 +21,10 @@ Use synthetic data only during development:
 
 During implementation on Windows, automated checks and manual case creation, demo graph/evidence, review saving, and CSV import were exercised. Browser diagnostics showed no application console errors in those flows. A subsequent [live X pilot](live-pilot-2026-11-05.md) exercised authenticated collection and exposed the long-post preview issue fixed in 0.3.1. Provider billing is not reconciled, and live Bluesky/Mastodon acceptance has not been exercised.
 
+The 0.3.2 feedback regressions cover same-UTC-day deduplication across restarts, day rollover and midnight-crossing requests, credential isolation, conservative failure reservations, optional author charges, unchanged per-request counts charges, credit failures/top-ups/clipping, stored-row comparison populations, separate query-hour profiles, configured activity rules, and preserved collapsed evidence. The workspace report route allows only the known report script hash; post content remains escaped.
+
+Manual browser checks on the [synthetic report](report-examples.md) verified light/dark controls, 25 initially disclosed pair rows with all 210 retained, links opening event and nested post details, and a white-background print preview with expanded pair references. No console warnings or errors were reported. These checks make no paid API requests. The private classroom dataset was not available for a fresh run; its reported 21-of-22 result has not been independently remeasured. Detector defaults and their existing regression tests are unchanged.
+
 ## What these tests do not establish
 
 Synthetic positives demonstrate expected mechanics, not real-world precision or recall. A legitimate recurring campaign is intentionally a coordination lead. Strong evaluation needs independently annotated cases, matched benign controls, held-out topics/time periods, missing-data stress tests, threshold sensitivity, and analyst agreement. Keep labels for coordination separate from labels for deceptive identity/control. Do not turn these tests into a public CIB accuracy percentage.

@@ -64,6 +64,8 @@ Five seeded timestamp shuffles also produced zero recurring edges. That comparis
 
 The initial collection's local estimate was approximately **US$4.02**. A verification reread to recover full-length text brought the cumulative estimate to **US$7.98**, across two counts requests and seven search pages. These estimates include returned author profiles and repeated resources without assuming provider deduplication. They are not a reconciled X invoice or a price guarantee for another run.
 
+**Updated billing interpretation:** operator-reported console totals and request inventories support an inferred pilot allocation of **US$1.435, about US$1.44**: 285 distinct posts at $0.005 plus two recent-counts requests at $0.005. The same-day reread and author expansions appear uncharged on that account. The $4.02/$7.98 values above remain as historical 0.3.1 estimates; they overstate the reported billing behavior. This is not a separately verified pilot debit, and the supplied whole-account arithmetic differs by half a cent from the reported console total. See [measured account observations](../../x-costs.md#measured-account-observations--november-45-2026).
+
 Requesting full text recovered **17 relevant posts** that shortened previews had excluded, without adding new post IDs. The pilot also led to fixes for author-profile cost accounting and the report's partial first-day chart. The [technical pilot notes](../../live-pilot-2026-11-05.md) explain these changes and the incomplete billing reconciliation.
 
 ## Interpretation and next steps

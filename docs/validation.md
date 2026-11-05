@@ -19,7 +19,7 @@ Use synthetic data only during development:
 5. Import `examples/synthetic-posts.csv`. Expect nine posts, three accounts, one group, and partial import coverage. Inspect findings and export JSON.
 6. Check browser console errors, empty/failed/unavailable states, narrow-screen layout, and report links. Do not click live collection merely to test a button.
 
-During implementation on Windows, automated checks and manual case creation, demo graph/evidence, review saving, and CSV import were exercised. Browser diagnostics showed no application console errors in those flows. Live credentialed X/Bluesky collection and provider billing were not exercised.
+During implementation on Windows, automated checks and manual case creation, demo graph/evidence, review saving, and CSV import were exercised. Browser diagnostics showed no application console errors in those flows. A subsequent [live X pilot](live-pilot-2026-11-05.md) exercised authenticated collection and exposed the long-post preview issue fixed in 0.3.1. Provider billing is not reconciled, and live Bluesky/Mastodon acceptance has not been exercised.
 
 ## What these tests do not establish
 

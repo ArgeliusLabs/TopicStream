@@ -44,6 +44,19 @@ class ReplayHttp:
 
 
 class IdentityAndScopeTests(unittest.TestCase):
+    def test_report_daily_series_includes_partial_boundary_days(self):
+        with Store(':memory:') as store:
+            p=row('a',1); p.pop('key'); store.add_posts([Post(**p)])
+            cfg={'name':'Partial days','terms':['water quality'],'tags':[],
+                 'start_utc':'2026-10-29T17:00:00Z','end_utc':'2026-10-30T17:00:00Z'}
+            with patch.object(A,'daily_series',wraps=A.daily_series) as daily:
+                report.render(store,cfg,now=NOW)
+                self.assertEqual(daily.call_args.args[2],2)
+            cfg['end_utc']='2026-10-30T00:00:00Z'
+            with patch.object(A,'daily_series',wraps=A.daily_series) as daily:
+                report.render(store,cfg,now=NOW)
+                self.assertEqual(daily.call_args.args[2],1)
+
     def test_identity_separates_platforms_and_preserves_handle_changes(self):
         p=row('a',1); changed=dict(p,author='renamed')
         self.assertEqual(account_key(p),account_key(changed))
@@ -97,6 +110,30 @@ class IdentityAndScopeTests(unittest.TestCase):
 
 
 class LedgerAndResumeTests(unittest.TestCase):
+    def test_resource_cost_does_not_add_a_float_rounding_microdollar(self):
+        x=X(None)
+        with Store(':memory:') as store:
+            amount=x.resource_cost(53,47)
+            request=store.reserve_request('x','search','q',amount,1,iso(NOW))
+            store.settle_request(request,amount,iso(NOW))
+            self.assertEqual(store.ledger()[0]['charged_micros'],735000)
+
+    def test_long_post_text_and_entities_are_used_for_topic_matching(self):
+        for field in ('note_tweet','note_post'):
+            page=x_search_page([1]); page['data'][0]['text']='Short preview'
+            page['data'][0][field]={'text':'Full discussion of Singapore haze #airquality',
+                'entities':{'urls':[{'expanded_url':'https://example.org/full'}]}}
+            p=X(None)._parse(page,['airquality'],['haze'],NOW)[0]
+            self.assertIn('Singapore haze',p.text); self.assertEqual(p.matched,['#airquality','haze'])
+            self.assertEqual(p.links,['https://example.org/full'])
+            self.assertEqual(p.tags,['airquality'])
+
+    def test_usage_credit_balance_uses_documented_endpoint(self):
+        http=ReplayHttp({'data':{'total_balance':82.5}})
+        x=X(http,bearer='tok',budget_usd=0)
+        self.assertEqual(x.credits()['data']['total_balance'],82.5)
+        self.assertIn('/2/usage/credits',http.calls[0]); self.assertEqual(x.spent,0)
+
     def test_author_expansion_budget_is_checked_before_http(self):
         with Store(':memory:') as store:
             http=ReplayHttp()

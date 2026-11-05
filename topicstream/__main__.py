@@ -231,6 +231,8 @@ def usage(cfg, log=print):
     x = X(Http(log=log), log)
     if not x.available(): log('No X_BEARER_TOKEN.'); return
     log('Provider usage response: ' + json.dumps(x.usage().get('data', {}),sort_keys=True))
+    try: log('Provider credit balance (USD): ' + json.dumps(x.credits().get('data', {}),sort_keys=True))
+    except Exception as exc: log('Credit balance unavailable: ' + type(exc).__name__)
     with Store(cfg['db']) as store:
         log(f'Local reserved or spent estimate: ${store.spent():.4f}. Meter fields are not a verified invoice.')
 

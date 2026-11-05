@@ -16,6 +16,12 @@ from test_investigations import ReplayHttp, row
 from test_topicstream import NOW, x_search_page
 
 
+def setUpModule():
+    clock=patch('topicstream.xsource.utcnow',return_value=NOW)
+    clock.start()
+    unittest.addModuleCleanup(clock.stop)
+
+
 class DailyReadTests(unittest.TestCase):
     def test_resource_markers_roll_back_with_failed_settlement(self):
         with Store(':memory:') as s:

@@ -61,7 +61,7 @@ def validated_config(body,folder):
          'sources':{'mastodon':{'enabled':'mastodon' in sources,'instances':['mastodon.social','infosec.exchange'],'max_pages':10},
                     'bluesky':{'enabled':'bluesky' in sources,'max_pages':10},
                     'x':{'enabled':'x' in sources,'max_posts_per_tag':200,'budget_usd':budget,'query_extra':'','archive':(utcnow()-start).days>=7,
-                         'read_mode':'always','counts_every_minutes':60,'prices':{'post_read':.005,'user_read':.010,'counts_recent':.005,'counts_all':.010,'bill_author_expansions':False}}},
+                         'read_mode':'always','counts_every_minutes':60,'prices':{'post_read':.005,'user_read':.010,'counts_recent':.005,'counts_all':.010,'bill_author_expansions':'auto'}}},
          'alert':{'window_minutes':30,'uses':200,'ratio':10,'uses_per_account':5,'min_uses':10},'detector':dict(detection.DEFAULTS)}
     cfg['query_fingerprint']=digest({k:cfg[k] for k in ('tags','terms','exclude_terms','languages','start_utc','end_utc','sources')})
     return cfg

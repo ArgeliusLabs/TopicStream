@@ -26,6 +26,8 @@ Initial collection was approximately US$4.02 under the conservative local resour
 
 The post-usage meter updated asynchronously. Credit-balance readings immediately before and after the verification reread were unchanged. A balance baseline was not captured before the initial collection, so an exact debit attributable to the entire pilot cannot be established from these readings. Account identifiers, balances, credentials, raw posts, and analyst evidence are retained locally and are not published in this repository.
 
+The maintainer subsequently supplied an X notice confirming that expansions were unbilled before an announced **November 22, 2026** transition to standard resource charges. This supports the expansion interpretation above without retroactively changing the pilot. Version 0.3.3 adds automatic author-expansion pricing from that date and reserves the higher page cost in advance. This pilot's pre-change cost is not a price quote for future runs; see [the current policy](x-costs.md).
+
 ## Fixes prompted by the pilot
 
 1. Initially reserve for author profiles as well as posts. Subsequent account observations led 0.3.2 to omit expansion charges by default and deduplicate same-UTC-day reads; the conservative expansion option remains configurable.

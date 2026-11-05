@@ -2,11 +2,15 @@
 
 `budget_usd` limits the accumulated local estimate in one database, including prior runs, pending reservations, and unresolved requests. It is not an account-wide cap or an authoritative provider invoice. Old ledger entries are retained unchanged when upgrading.
 
-## Pricing assumptions in 0.3.2
+## Pricing assumptions in 0.3.3
 
-Default rates are `post_read: 0.005`, `user_read: 0.010`, `counts_recent: 0.005`, and `counts_all: 0.010` USD, with **`bill_author_expansions: false`**. Search's `author_id` expansions therefore add no user charge by default. `user_read` remains a separate user-resource rate and is applied to search expansions only when the conservative option is enabled. TopicStream currently makes no explicit users-endpoint calls.
+Default rates are `post_read: 0.005`, `user_read: 0.010`, `counts_recent: 0.005`, and `counts_all: 0.010` USD, with **`bill_author_expansions: "auto"`**. Automatic settlement estimates omit author-expansion charges before November 22, 2026 and include them from that date. The policy is evaluated for each request, including in a running collector; the post's creation date and the case's historical dates do not determine its read price.
 
-The published resource rates come from [X pricing](https://docs.x.com/x-api/getting-started/pricing), checked November 5, 2026. That page does not unambiguously establish search-expansion billing. The default expansion assumption is based on the operator's account observations below; verify it against your account and change it if needed.
+The published post/user/count rates come from [X pricing](https://docs.x.com/x-api/getting-started/pricing), checked November 5, 2026. The project maintainer also supplied an X PPU notice stating that expanded objects are currently unbilled but become billable at their standard resource rate **from November 22**. That notice is the source for the transition date; the public pricing/expansions pages checked on November 5 did not state that date. The notice does not specify a timezone, so midnight UTC is an estimation convention, not a claim about the provider's exact cutover instant. Reservations already cover the higher rate.
+
+The notice lists expanded posts at $0.005, users at $0.010, and media, polls, and places at $0.005 each. TopicStream requests **only `author_id` expansions**; it makes no explicit users-endpoint calls and requests no media, poll, place, or referenced-post expansions. Its existing daily resource tracking also deduplicates billable authors within the same local scope. Reducing `user.fields` alone does not remove the returned user object; the current fields supply account age, display name, and public metrics used in investigation. [X expansion mechanics](https://docs.x.com/x-api/fundamentals/expansions).
+
+Set `bill_author_expansions: true` to estimate author charges immediately. Legacy `false` from 0.3.2 now follows the automatic date policy too: it cannot silently disable charges after the announced change. Custom numeric rates remain configurable. No historical ledger entries or pilot totals are retroactively repriced.
 
 ```json
 {
@@ -21,12 +25,14 @@ The published resource rates come from [X pricing](https://docs.x.com/x-api/gett
     "user_read": 0.010,
     "counts_recent": 0.005,
     "counts_all": 0.010,
-    "bill_author_expansions": false
+    "bill_author_expansions": "auto"
   }
 }
 ```
 
-Search reserves the full requested page price before HTTP, without assuming duplicate results. At the default rates, a 100-post page needs $0.50 available. Ten new posts with six author expansions settle to $0.05; with `bill_author_expansions: true`, the reservation is $1.50 and that first response settles to $0.11. Unsupported expansion types are rejected. Recent search's minimum page size is 10, so a smaller cap remains a soft limit and the reservation covers all 10. [X search parameters](https://docs.x.com/x-api/posts/search-recent-posts).
+Search reserves the full requested page price before HTTP, without assuming duplicate results. **Reservations include author charges even before November 22**, so an in-flight request crossing the transition is covered. At the default rates, a 100-post page with author expansions needs $1.50 available. Ten new posts with six new author profiles settle to $0.05 before the change and $0.11 from it; `true` uses the latter estimate immediately. A request spanning the cutover settles at the higher rate, without seeding daily deduplication across midnight. Unsupported expansion types are rejected. Recent search's minimum page size is 10, so a smaller cap remains a soft limit and the reservation covers all 10. [X search parameters](https://docs.x.com/x-api/posts/search-recent-posts).
+
+For scale, 100 new posts by 100 new authors cost an estimated $0.50 before the change versus $1.50 after it, excluding counts. Repeated authors can lower that total through daily deduplication; three times the post-only rate is an illustrative worst case for this one-author-per-post expansion, not a universal multiplier for every investigation.
 
 Successful search responses settle only newly observed resource IDs within the **same UTC calendar day**, across queries and restarts in the same database and credential scope. The resource record and settlement are atomic. This implements X's documented daily deduplication, which X describes as a soft guarantee. It resets at midnight UTC, **not on the monthly billing day**. Monthly usage reset fields do not define the deduplication interval.
 
@@ -46,6 +52,8 @@ These are **operator-reported developer-console totals and request inventories**
 The November 4 arithmetic rounds to the reported total. The November 5 arithmetic is **$0.005 above** the stated console figure and would conventionally round half-up to $5.54. That small discrepancy remains unresolved; these numbers are not an exact reconciliation to the cent. Both inventories support omitting a separate expansion charge and applying same-day resource deduplication on this account. They do not demonstrate month-long free rereads or guarantee every account's pricing.
 
 The haze-only allocation inferred from the reported inventory is `285 × $0.005 + 2 × $0.005 = $1.435`, or **about $1.44** using half-up cents. It is an inferred allocation, not a separately verified pilot debit. The historical 0.3.1 local estimates were **$4.02 initially and $7.98 including verification**: that model counted expanded authors and duplicate reads again. These historical entries remain visible for audit, alongside the corrected interpretation. See the [pilot](live-pilot-2026-11-05.md) and [public sample](examples/singapore-haze/report.md).
+
+The subsequent provider notice supports the explanation for unbilled expansions on November 4–5. Its November 22 change does not alter those historical runs; their figures must not be used as a post-change price quote. It also does not resolve the half-cent discrepancy or establish an invoice-confirmed pilot allocation.
 
 ## Account balance observations
 

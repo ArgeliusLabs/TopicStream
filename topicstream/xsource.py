@@ -8,7 +8,7 @@ import math
 import re
 import urllib.error
 import urllib.parse
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from .sources import Http, Post, iso, utcnow, parse_time, queries, matches, tags_in
 from .identity import digest
@@ -36,6 +36,9 @@ def credit_delta(before, after):
 class X:
     name = 'x'
     COUNT_RECENT, COUNT_ALL, POST_READ, USER_READ = 0.005, 0.010, 0.005, 0.010
+    # Provider notice supplied November 5. The notice gives a date, not a timezone;
+    # midnight UTC is our estimation convention. Reservations cover the paid rate now.
+    AUTHOR_EXPANSIONS_BILL_FROM = datetime(2026, 11, 22, tzinfo=timezone.utc)
     FIELDS = 'created_at,entities,note_tweet,public_metrics,referenced_tweets,lang,author_id,in_reply_to_user_id'
 
     def __init__(self, http, log=print, max_posts_per_tag=200, budget_usd=2.0, bearer=None,
@@ -53,10 +56,10 @@ class X:
         self.sample_per_day, self.sample_windows = int(sample_per_day or 0), max(1, int(sample_windows_per_day or 6))
         self.counts_every, self.counts_fetched = int(counts_every_minutes), dict(counts_fetched or {})
         self.save_counts_fetched = save_counts_fetched or (lambda *args: None)
-        self.prices = {'post_read': self.POST_READ, 'user_read': self.USER_READ, 'counts_recent': self.COUNT_RECENT, 'counts_all': self.COUNT_ALL, 'bill_author_expansions': False}
+        self.prices = {'post_read': self.POST_READ, 'user_read': self.USER_READ, 'counts_recent': self.COUNT_RECENT, 'counts_all': self.COUNT_ALL, 'bill_author_expansions': 'auto'}
         self.prices.update(prices or {})
-        if not isinstance(self.prices['bill_author_expansions'], bool):
-            raise ValueError('bill_author_expansions must be true or false')
+        if not isinstance(self.prices['bill_author_expansions'], bool) and self.prices['bill_author_expansions'] != 'auto':
+            raise ValueError('bill_author_expansions must be auto, true, or legacy false')
         if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for k,v in self.prices.items() if k != 'bill_author_expansions'):
             raise ValueError('X prices must be nonnegative numbers')
         if not math.isfinite(self.budget) or self.budget<0 or self.max_posts<1: raise ValueError('Invalid budget or post cap')
@@ -83,15 +86,26 @@ class X:
 
     def count_price(self): return self.prices['counts_all' if self.archive else 'counts_recent']
 
-    def search_unit_price(self):
-        # Our only expansion is author_id: at most one user resource per post.
-        return self.prices['post_read'] + (self.prices['user_read'] if self.prices['bill_author_expansions'] else 0)
+    def bills_author_expansions(self, at=None):
+        # Legacy false follows the announced cutover too; it cannot silently leave
+        # saved 0.3.2 cases underpriced after November 22. True opts in immediately.
+        return self.prices['bill_author_expansions'] is True or (at or utcnow()) >= self.AUTHOR_EXPANSIONS_BILL_FROM
 
-    def resource_cost(self, posts, users=0):
+    def pricing_note(self):
+        mode='included' if self.bills_author_expansions() else 'not yet included'
+        return (f'Author-profile charge is {mode} in settlements; ${self.prices["user_read"]:.4f} per new user resource '
+                'from 2026-11-22 (UTC estimator convention). Full-page reservations already allow this charge; '
+                'daily deduplication and provider billing limits still apply.')
+
+    def search_unit_price(self, at=None):
+        # Our only expansion is author_id: at most one user resource per post.
+        return self.prices['post_read'] + (self.prices['user_read'] if self.bills_author_expansions(at) else 0)
+
+    def resource_cost(self, posts, users=0, at=None, reserve=False):
         # Decimal multiplication avoids a binary-float tail becoming an extra
         # micro-dollar when Store conservatively rounds a reservation upward.
         return float(posts * Decimal(str(self.prices['post_read']))
-                     + users * Decimal(str(self.prices['user_read'] if self.prices['bill_author_expansions'] else 0)))
+                     + users * Decimal(str(self.prices['user_read'] if reserve or self.bills_author_expansions(at) else 0)))
 
     def capture_credit(self, run_id, phase):
         """Best-effort account observation, never an authoritative run charge."""
@@ -127,9 +141,9 @@ class X:
         if paid and not counted and expansions - {'author_id'}:
             raise ValueError('Unpriced search expansion; only author_id is supported')
         limit = int(q.get('max_results', 0))
-        price = self.count_price() if counted else self.resource_cost(limit, limit if 'author_id' in expansions else 0)
-        reservation = None
         started = utcnow()
+        price = self.count_price() if counted else self.resource_cost(limit, limit if 'author_id' in expansions else 0, at=started, reserve=True)
+        reservation = None
         if paid:
             if self.store:
                 reservation = self.store.reserve_request('x', url, digest(q), price, self.budget, iso(started))
@@ -159,7 +173,9 @@ class X:
             else:
                 day = iso(started)[:10] if started.date() == finished.date() else None
                 resources = [('post', p.get('id'), self.prices['post_read']) for p in result[0].get('data', [])]
-                if self.prices['bill_author_expansions']:
+                # A request spanning the transition settles at the higher rate,
+                # already covered by its reservation. Never reprice old ledger rows.
+                if self.bills_author_expansions(max(started,finished)):
                     resources += [('user', u.get('id'), self.prices['user_read']) for u in result[0].get('includes', {}).get('users', [])]
                 if reservation:
                     actual = self.store.settle_resources(reservation, self._credential_scope, day, resources, iso(finished))

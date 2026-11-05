@@ -1,5 +1,12 @@
 # Changes
 
+## 0.3.3 (November 5, 2026)
+
+- Follow the X PPU notice supplied by the maintainer: expanded author objects become billable at the configured user-resource rate from November 22, 2026. Use request time, including for historical searches and collectors already running at the transition.
+- Default expansion billing to `auto`; legacy `false` follows the same scheduled transition, while `true` includes user charges immediately. The notice specifies no timezone; the estimator uses midnight UTC.
+- Reserve full post-plus-author page cost in advance, including before the transition; settle requests spanning the cutover conservatively. Preserve daily user deduplication, unknown-outcome reservations, and all historical ledger entries.
+- Clarify the pre-change Singapore pilot figures, future pricing, and migration behavior. Add offline transition/budget tests and freeze historical pricing fixtures so CI does not depend on today's date. No new paid API test was performed.
+
 ## 0.3.2 (November 5, 2026)
 
 - Default search author-expansion charges to zero, with an opt-in conservative price setting. Settle repeated resource IDs once per UTC day within a database and credential scope; retain full reservations for uncertain calls and preserve historical entries.

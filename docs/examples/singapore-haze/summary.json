@@ -61,7 +61,14 @@
     "account_inventory_arithmetic_2026_11_05": 5.535,
     "inferred_pilot_allocation": 1.435,
     "inferred_pilot_allocation_half_up_cents": 1.44,
-    "measurement_source": "Operator-reported developer-console totals and request inventories; underlying invoice not independently inspected."
+    "measurement_source": "Operator-reported developer-console totals and request inventories; underlying invoice not independently inspected.",
+    "expansion_billing_notice": {
+      "source": "Provider notice supplied by maintainer on 2026-11-05; transition date not stated on checked public documentation pages.",
+      "effective_date": "2026-11-22",
+      "user_resource_usd": 0.01,
+      "historical_pilot_before_transition": true,
+      "changes_historical_cost": false
+    }
   },
   "limitations": [
     "Counts/search discrepancy unresolved; exhausted pagination does not prove topic completeness.",

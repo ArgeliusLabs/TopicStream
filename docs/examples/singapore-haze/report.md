@@ -66,6 +66,8 @@ The initial collection's local estimate was approximately **US$4.02**. A verific
 
 **Updated billing interpretation:** operator-reported console totals and request inventories support an inferred pilot allocation of **US$1.435, about US$1.44**: 285 distinct posts at $0.005 plus two recent-counts requests at $0.005. The same-day reread and author expansions appear uncharged on that account. The $4.02/$7.98 values above remain as historical 0.3.1 estimates; they overstate the reported billing behavior. This is not a separately verified pilot debit, and the supplied whole-account arithmetic differs by half a cent from the reported console total. See [measured account observations](../../x-costs.md#measured-account-observations--november-45-2026).
 
+**Future pricing:** a subsequent X notice supplied by the maintainer says expanded objects become billable from **November 22, 2026**, including author profiles at $0.010 per user resource. TopicStream 0.3.3 accounts for that transition automatically and reserves the higher cost in advance. It does not change this November 5 pilot's historical figures. [Current pricing policy](../../x-costs.md).
+
 Requesting full text recovered **17 relevant posts** that shortened previews had excluded, without adding new post IDs. The pilot also led to fixes for author-profile cost accounting and the report's partial first-day chart. The [technical pilot notes](../../live-pilot-2026-11-05.md) explain these changes and the incomplete billing reconciliation.
 
 ## Interpretation and next steps

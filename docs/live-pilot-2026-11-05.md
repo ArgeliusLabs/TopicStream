@@ -1,5 +1,7 @@
 # Live pilot: Singapore haze
 
+[Read the public sample report](examples/singapore-haze/report.md) for a reader-facing walkthrough, daily activity table, and downloadable aggregate summary. This page records the collection process, fixes, and remaining validation work.
+
 On November 5, 2026, TopicStream completed an authenticated X collection and analysis of the current Singapore haze discussion. The topic was selected using the [NEA November 4 advisory](https://www.nea.gov.sg/media/news/advisories/index/haze-situation-update-4-november-2026). This tests the workflow on real data; it does not establish detection accuracy.
 
 ## Scope and outcome

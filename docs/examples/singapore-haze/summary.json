@@ -1,0 +1,66 @@
+{
+  "document_type": "public_aggregate_pilot_summary",
+  "title": "Singapore haze: TopicStream live pilot",
+  "pilot_date": "2026-11-05",
+  "application_version": "0.3.1",
+  "detector_version": "recurrence-1",
+  "source": "x",
+  "query": "\"haze\" (Singapore OR Singapura OR 新加坡)",
+  "start_utc_inclusive": "2026-10-30T17:26:08Z",
+  "end_utc_exclusive": "2026-11-05T17:26:08Z",
+  "counts_endpoint_matches": 320,
+  "distinct_posts_retrieved": 285,
+  "posts_analyzed": 284,
+  "accounts_analyzed": 238,
+  "reposts_analyzed": 84,
+  "other_posts_analyzed": 200,
+  "short_window_coamplification_events": 4,
+  "recurring_account_pair_edges": 0,
+  "recurring_groups": 0,
+  "posts_per_utc_date": {
+    "2026-10-30": 12,
+    "2026-10-31": 31,
+    "2026-11-01": 36,
+    "2026-11-02": 47,
+    "2026-11-03": 76,
+    "2026-11-04": 49,
+    "2026-11-05": 33
+  },
+  "partial_dates": [
+    "2026-10-30",
+    "2026-11-05"
+  ],
+  "detector_settings": {
+    "window_minutes": 10,
+    "episode_gap_minutes": 60,
+    "min_episodes": 3,
+    "min_days": 2,
+    "min_accounts": 3,
+    "max_event_accounts": 100,
+    "max_posts": 20000,
+    "baseline_repeats": 5
+  },
+  "assessment": "No strong recurring coordination detected in the observed data",
+  "authenticity_assessment": "Unresolved; public behavior alone does not establish deception",
+  "baseline_edges_per_shuffle": [
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "cost": {
+    "currency": "USD",
+    "initial_collection_estimate_rounded": 4.02,
+    "including_verification_reread_estimate_rounded": 7.98,
+    "paid_endpoint_requests": 9,
+    "provider_invoice_reconciled": false,
+    "basis": "Local conservative estimate, including returned author profiles and rereads; no assumed provider deduplication."
+  },
+  "limitations": [
+    "Counts/search discrepancy unresolved; exhausted pagination does not prove topic completeness.",
+    "One platform and six-day interval; English word haze required despite no language filter.",
+    "No ground-truth labels or real-world accuracy estimate.",
+    "Aggregate documentation only; not an importable case or account-level reproducible dataset."
+  ]
+}

@@ -111,7 +111,7 @@ class IdentityAndScopeTests(unittest.TestCase):
 
 class LedgerAndResumeTests(unittest.TestCase):
     def test_resource_cost_does_not_add_a_float_rounding_microdollar(self):
-        x=X(None)
+        x=X(None,prices={'bill_author_expansions':True})
         with Store(':memory:') as store:
             amount=x.resource_cost(53,47)
             request=store.reserve_request('x','search','q',amount,1,iso(NOW))
@@ -137,23 +137,23 @@ class LedgerAndResumeTests(unittest.TestCase):
     def test_author_expansion_budget_is_checked_before_http(self):
         with Store(':memory:') as store:
             http=ReplayHttp()
-            x=X(http,store=store,bearer='tok',budget_usd=.10,max_posts_per_tag=10)
+            x=X(http,store=store,bearer='tok',budget_usd=.10,max_posts_per_tag=10,prices={'bill_author_expansions':True})
             with self.assertRaises(BudgetExceeded): x.posts(['t'],[],NOW-timedelta(days=1),NOW)
             self.assertEqual(http.calls,[]); self.assertEqual(store.spent(),0)
 
-    def test_search_settles_returned_posts_and_author_profiles(self):
+    def test_search_defaults_to_post_reads_without_author_expansion_charge(self):
         page=x_search_page([1,4])  # Two posts by one author, one expanded profile.
         with Store(':memory:') as store:
             x=X(ReplayHttp(page),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
             x.posts(['t'],[],NOW-timedelta(days=1),NOW)
-            self.assertAlmostEqual(store.spent(),.02)
-            self.assertEqual(store.ledger()[0]['reserved_micros'],150000)
+            self.assertAlmostEqual(store.spent(),.01)
+            self.assertEqual(store.ledger()[0]['reserved_micros'],50000)
 
-    def test_uncertain_search_retains_post_and_profile_reservation(self):
+    def test_uncertain_search_retains_full_reservation(self):
         with Store(':memory:') as store:
             x=X(ReplayHttp(TimeoutError('network')),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10)
             with self.assertRaises(TimeoutError): x.posts(['t'],[],NOW-timedelta(days=1),NOW)
-            self.assertAlmostEqual(store.spent(),.15)
+            self.assertAlmostEqual(store.spent(),.05)
 
     def test_unpriced_expansions_are_rejected_before_http(self):
         http=ReplayHttp(); x=X(http,bearer='tok')
@@ -180,7 +180,7 @@ class LedgerAndResumeTests(unittest.TestCase):
             x=X(http,store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
             x.posts(['Election2026'],[],NOW-timedelta(days=1),NOW)
             self.assertEqual(len(store.ledger()),2); self.assertEqual(store.ledger()[0]['status'],'uncertain')
-            self.assertIn('post.fields=',http.calls[-1]); self.assertAlmostEqual(store.spent(),.165)
+            self.assertIn('post.fields=',http.calls[-1]); self.assertAlmostEqual(store.spent(),.055)
 
     def test_api_error_payload_never_exhausts_coverage(self):
         with Store(':memory:') as store:
@@ -405,7 +405,7 @@ class CaseTests(unittest.TestCase):
             for p in coordinated():
                 p.pop('key'); p['text']='<script>alert(1)</script> water quality repeating same sufficiently long content'; p['url']='javascript:alert(1)'; store.add_posts([Post(**p)])
             html=report.render(store,{'name':'<img onerror=bad>','tags':[],'terms':['water quality'],'days':7},now=NOW)
-            self.assertNotIn('<script>',html); self.assertNotIn('href="javascript:',html); self.assertIn('&lt;script&gt;',html)
+            self.assertNotIn('<script>alert(1)</script>',html); self.assertEqual(html.count('<script>'),1); self.assertNotIn('href="javascript:',html); self.assertIn('&lt;script&gt;',html)
 
     def test_report_preserves_export_wording_and_bar_width(self):
         with Store(':memory:') as store:
@@ -436,6 +436,12 @@ class CaseTests(unittest.TestCase):
                 case=post('/api/cases',{'topic':'water quality','sources':[]},token); case_id=case['case']['id']
                 self.assertEqual(get('/api/cases')[0]['id'],case_id)
                 self.assertEqual(get('/api/cases/'+case_id+'/export')['format_version'],1)
+                server.cases._analyze(case_id)
+                with urllib.request.urlopen(base+'/api/cases/'+case_id+'/report') as response:
+                    self.assertIn(report.SCRIPT_HASH,response.headers['Content-Security-Policy'])
+                    self.assertNotIn("'unsafe-inline'",response.headers['Content-Security-Policy'].split('script-src ')[1].split(';')[0])
+                    # HTML parsing normalizes CRLF before applying a CSP script hash.
+                    self.assertIn(report.SCRIPT,response.read().decode('utf-8').replace('\r\n','\n'))
                 for path in ('/app.js','/app.css','/'):
                     with urllib.request.urlopen(base+path) as response: self.assertEqual(response.status,200)
             finally: server.shutdown(); thread.join(timeout=5); server.server_close(); server.cases.close()

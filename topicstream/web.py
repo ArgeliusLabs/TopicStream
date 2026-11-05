@@ -24,7 +24,7 @@ def make_server(root,port=8765):
         def _allowed_host(self):
             return self.headers.get('Host','') in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}
 
-        def send(self,status,payload,kind='application/json',filename=None):
+        def send(self,status,payload,kind='application/json',filename=None,report_script=False):
             if kind=='application/json': payload=json.dumps(payload,ensure_ascii=False).encode('utf-8')
             elif isinstance(payload,str): payload=payload.encode('utf-8')
             self.send_response(status)
@@ -33,7 +33,9 @@ def make_server(root,port=8765):
             self.send_header('Cache-Control','no-store')
             self.send_header('X-Content-Type-Options','nosniff')
             self.send_header('Referrer-Policy','no-referrer')
-            self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+            from .report import SCRIPT_HASH
+            scripts="'self'" + (" '"+SCRIPT_HASH+"'" if report_script else '')
+            self.send_header('Content-Security-Policy',"default-src 'self'; script-src "+scripts+"; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
             if filename: self.send_header('Content-Disposition',f'attachment; filename="{filename}"')
             self.end_headers(); self.wfile.write(payload)
 
@@ -56,7 +58,7 @@ def make_server(root,port=8765):
                     if len(parts)==4 and parts[3]=='export': self.send(200,cases.export(case_id),filename='topicstream-case.json'); return
                     if len(parts)==4 and parts[3]=='report':
                         report=cases.folder(case_id)/'report.html'
-                        self.send(200,report.read_bytes(),'text/html'); return
+                        self.send(200,report.read_bytes(),'text/html',report_script=True); return
                 self.send(404,{'error':'Not found'})
             except FileNotFoundError as exc: self.send(404,{'error':str(exc)})
             except (ValueError,KeyError) as exc: self.send(400,{'error':str(exc)})

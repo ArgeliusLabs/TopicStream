@@ -1,5 +1,14 @@
 # Changes
 
+## 0.3.2 (November 5, 2026)
+
+- Default search author-expansion charges to zero, with an opt-in conservative price setting. Settle repeated resource IDs once per UTC day within a database and credential scope; retain full reservations for uncertain calls and preserve historical entries.
+- Capture before/after credit observations for collection and peak reads. Report account balance movement separately from local estimates; do not claim automatic invoice reconciliation.
+- Correct the public pilot's billing interpretation: approximately $1.44 inferred from operator-reported account activity, alongside the original $4.02/$7.98 estimates and the unresolved half-cent whole-account discrepancy.
+- Compare posting hours against all stored rows inside the bounds and, separately, each matching X query's stored complete hourly buckets. Show analysis versus stored-row counts and headline activity triggers using configured thresholds.
+- Collapse pair and post reference material without removing evidence. Hash links open their targets; a light-theme toggle and print controls work in standalone and workspace reports under a script-hash CSP.
+- Refresh synthetic report screenshots and make CLI navigation prominent. Detector defaults, descriptive account labels, authenticity language, and shuffle limitations are unchanged.
+
 ## 0.3.1 (November 5, 2026)
 
 - Live Singapore haze pilot: 285 retrieved posts; 284 text-matching posts from 238 accounts; no recurring group at the default thresholds. This is an operational check, not an accuracy benchmark. See `docs/live-pilot-2026-11-05.md`.

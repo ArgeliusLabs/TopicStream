@@ -6,20 +6,27 @@ from .sources import parse_time, iso
 from .identity import account_key
 
 
+def alert_scope(cfg, start, end):
+    from .identity import digest
+    return digest({'start':iso(start),'end':iso(end),'tags':cfg.get('tags',[]),'terms':cfg.get('terms',[]),
+                   'exclude_terms':cfg.get('exclude_terms',[]),'languages':cfg.get('languages',[]),
+                   'sources':cfg.get('sources',{}),'alert':cfg.get('alert',{})})
+
+
 def count_alerts(rows, now, threshold=200, ratio=10, min_uses=10):
     by=defaultdict(list)
     for row in rows:
         if parse_time(row['start_utc'])+timedelta(hours=1)<=now:
-            by[row['tag']].append(row)
+            by[(row['tag'],row.get('query_hash',''))].append(row)
     out=[]
-    for label,series in by.items():
+    for (label,fingerprint),series in by.items():
         history=[]
         for row in sorted(series,key=lambda r:r['start_utc']):
             baseline=mean(history[-168:]) if history else None
             reasons=[]
             if row['uses']>=threshold: reasons.append(f'{row["uses"]} API-reported matches exceeds {threshold}')
             if len(history)>=6 and baseline and row['uses']>=max(min_uses,ratio*baseline): reasons.append(f'{row["uses"]/baseline:.1f}x preceding observed hours')
-            if reasons: out.append(dict(tag=label,start=row['start_utc'],uses=row['uses'],accounts=None,baseline=baseline,reasons=reasons))
+            if reasons: out.append(dict(tag=label,query_hash=fingerprint,start=row['start_utc'],uses=row['uses'],accounts=None,baseline=baseline,reasons=reasons))
             history.append(row['uses'])
     return out
 

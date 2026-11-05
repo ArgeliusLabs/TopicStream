@@ -55,7 +55,13 @@
     "including_verification_reread_estimate_rounded": 7.98,
     "paid_endpoint_requests": 9,
     "provider_invoice_reconciled": false,
-    "basis": "Local conservative estimate, including returned author profiles and rereads; no assumed provider deduplication."
+    "basis": "Historical local estimate overcounted author expansions and same-day rereads. Inferred allocation uses 285 distinct posts and two counts requests; whole-account half-cent discrepancy remains unresolved.",
+    "historical_estimator_version": "0.3.1",
+    "operator_reported_account_total_2026_11_05": 5.53,
+    "account_inventory_arithmetic_2026_11_05": 5.535,
+    "inferred_pilot_allocation": 1.435,
+    "inferred_pilot_allocation_half_up_cents": 1.44,
+    "measurement_source": "Operator-reported developer-console totals and request inventories; underlying invoice not independently inspected."
   },
   "limitations": [
     "Counts/search discrepancy unresolved; exhausted pagination does not prove topic completeness.",

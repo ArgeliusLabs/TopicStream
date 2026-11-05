@@ -34,9 +34,10 @@
       "read_mode": "always",
       "prices": {
         "post_read": 0.005,
-        "user_read": 0.010,
+        "user_read": 0.01,
         "counts_recent": 0.005,
-        "counts_all": 0.01
+        "counts_all": 0.01,
+        "bill_author_expansions": false
       }
     }
   },

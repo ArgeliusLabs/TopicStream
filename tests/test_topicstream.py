@@ -84,7 +84,7 @@ class AnalysisTests(unittest.TestCase):
             s = Store(Path(d) / 'x.sqlite')
             s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW), author_created_utc=p['author_created_utc'], author_followers=p['author_followers'], likes=p['likes']) for i, p in enumerate(self.posts)])
             html = R.render(s, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
-            self.assertIn('Retrospective activity rule', html); self.assertIn('#campaign', html); self.assertIn('site.example', html); self.assertNotIn('Traceback', html)
+            self.assertIn('Activity rules tripped', html); self.assertIn('#campaign', html); self.assertIn('site.example', html); self.assertNotIn('Traceback', html)
 
 # Point TOPICSTREAM_SAMPLE_CSV at a posts export with the import-csv column names to run the end-to-end analysis test.
 CIAP = Path(os.environ.get('TOPICSTREAM_SAMPLE_CSV', Path(__file__).resolve().parents[2] / 'capstone/release/Evidence/1_Platform/exports/ciap_posts_2026-02-01_to_2026-03-08.csv'))
@@ -102,7 +102,7 @@ class ExerciseDataTests(unittest.TestCase):
             self.assertTrue(v['start'].startswith('2026-02-05'), v['start'])                                                                       # the busiest push is the third
             b = A.bursts(posts, 10, 5); self.assertGreaterEqual(len(b), 8)        # the nine pushes, give or take the spelling split
             co = A.cooccurrence(posts, '#telukrawah'); self.assertIn('#sekawandeal', [c['tag'] for c in co])
-            html = R.render(s, cfg, now=datetime(2026, 3, 9, tzinfo=timezone.utc)); self.assertIn('Retrospective activity rule', html)
+            html = R.render(s, cfg, now=datetime(2026, 3, 9, tzinfo=timezone.utc)); self.assertIn('Activity rules tripped', html)
             self.assertIn('Imported export (ciap)', html); self.assertNotIn('<b>Mastodon.</b>', html)                              # platform notes follow what the database holds
             self.assertIn('Export: 2026-02-01 to 2026-03-08', html); self.assertIn('Export depth', html); self.assertNotIn('max_pages', html)
             prof = CIAP.parent / 'ciap_account_profiles_2026-03-09.csv'
@@ -135,7 +135,7 @@ class XFakeHttp:
         if '/usage/' in url: return dict(data=dict(project_usage='2851', project_cap='3000000', cap_reset_day=26)), {}
         if '/counts/' in url:
             g = q['granularity'][0]; n = 7 if g == 'day' else 168
-            return dict(data=[dict(start=f'2026-11-0{1 + i % 7}T00:00:00.000Z', end='x', post_count=100 + i) for i in range(n)], meta=dict(total_post_count=sum(100 + i for i in range(n)))), {}
+            return dict(data=[dict(start=f'2026-11-0{1 + i % 7}T00:00:00.000Z', end=f'2026-11-0{1 + i % 7}T01:00:00.000Z', post_count=100 + i) for i in range(n)], meta=dict(total_post_count=sum(100 + i for i in range(n)))), {}
         if 'since_id' in q: return x_search_page([2001, 2002]), {}
         if 'next_token' in q: return x_search_page([1003, 1004], rt=True), {}
         return x_search_page([1001, 1002], next_token='abc'), {}
@@ -151,7 +151,7 @@ class XTests(unittest.TestCase):
         self.assertEqual(len(posts), 4); self.assertEqual(sum(p.is_repost for p in posts), 2)
         self.assertEqual(posts[0].links, ['https://news.example/1001']); self.assertEqual(posts[0].author, 'user2'); self.assertEqual(posts[0].author_followers, 20)
         self.assertEqual(posts[0].matched, ['#election2026']); self.assertEqual(saved, {'#election2026': '1004'})
-        self.assertAlmostEqual(x.spent, 2 * 0.005 + 4 * 0.015)
+        self.assertAlmostEqual(x.spent, 2 * 0.005 + 4 * 0.005)
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[2]).query); self.assertEqual(q['query'], ['#Election2026 -is:retweet']); self.assertIn('start_time', q); self.assertNotIn('since_id', q)
     def test_legacy_newest_id_does_not_skip_unretrieved_history(self):
         http = XFakeHttp(); x = X(http, log=lambda *a: None, max_posts_per_tag=10, budget_usd=5, bearer='tok', cursors={'#election2026': '1004'})
@@ -159,8 +159,8 @@ class XTests(unittest.TestCase):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[0]).query); self.assertNotIn('since_id', q); self.assertIn('start_time', q)
         self.assertEqual([p.post_id for p in posts], ['1001', '1002', '1003', '1004']); self.assertEqual(x.cursors['#election2026'], '1004')
     def test_budget_counts_what_was_already_spent(self):
-        x = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.6, bearer='tok', spent_before=0.80)
-        self.assertAlmostEqual(x.estimate(['a']), 0.01 + 1.5)
+        x = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.6, bearer='tok', spent_before=1.20)
+        self.assertAlmostEqual(x.estimate(['a']), 0.01 + .5)
         with self.assertRaises(BudgetExceeded): x.posts(['a'], [], NOW - timedelta(days=7), NOW)
         x2 = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.6, bearer='tok', spent_before=0.0)
         x2.posts(['a'], [], NOW - timedelta(days=7), NOW)   # within budget: runs
@@ -184,7 +184,7 @@ class TermsAndDiscoveryTests(unittest.TestCase):
     def test_x_term_is_a_quoted_phrase_and_counts_both(self):
         http = XFakeHttp(); x = X(http, log=lambda *a: None, max_posts_per_tag=4, budget_usd=5, bearer='tok', query_extra='lang:en')
         self.assertEqual(x.query('Teluk Rawa', 'term'), '"Teluk Rawa" lang:en'); self.assertEqual(x.query('OSINT'), '#OSINT lang:en')
-        self.assertAlmostEqual(x.estimate(['a'], ['b c']), 2 * (0.01 + 0.15))
+        self.assertAlmostEqual(x.estimate(['a'], ['b c']), 2 * (0.01 + 0.05))
         rows = x.tag_days(['Election2026'], NOW, NOW - timedelta(days=7), terms=['bilge water'])
         self.assertEqual({r[2] for r in rows}, {'#election2026', 'bilge water'})
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[2]).query); self.assertEqual(q['query'], ['"bilge water" lang:en'])
@@ -203,8 +203,8 @@ class SamplingTests(unittest.TestCase):
         self.assertGreaterEqual(len({q['start_time'][0][:10] for q in qs}), 7)                       # every day covered
         self.assertEqual(sorted({q['start_time'][0][11:13] for q in qs}), ['00', '04', '08', '12', '16', '20'])   # six 4-hour windows from midnight
         self.assertTrue(all('search/all' in u for u in http.calls))
-        self.assertGreaterEqual(len(posts), 7 * 6 * 4); self.assertAlmostEqual(x.spent, len(posts) * 0.015)
-        self.assertAlmostEqual(x.estimate(['a'], [], 21), (1 + (1 + 21 * 24 // 500)) * 0.01 + min(10000, 10 * 6 * 22) * 0.015)
+        self.assertGreaterEqual(len(posts), 7 * 6 * 4); self.assertAlmostEqual(x.spent, len({p.post_id for p in posts}) * 0.005)
+        self.assertAlmostEqual(x.estimate(['a'], [], 21), (1 + (1 + 21 * 24 // 500)) * 0.01 + min(10000, 10 * 6 * 22) * 0.005)
     def test_velocity_from_counts(self):
         counts = [dict(source='x', tag='#t', start_utc=f'2026-10-{14 + i // 24:02d}T{i % 24:02d}:00:00Z', uses=5) for i in range(200)]
         counts[170]['uses'] = 784; counts[150]['uses'] = 120
@@ -221,14 +221,14 @@ class CollectWiringTests(unittest.TestCase):
             cfg=dict(tags=['Election2026'],terms=[],days=7,start_utc='2026-11-01T00:00:00Z',end_utc='2026-11-05T00:00:00Z',db=str(Path(d)/'c.sqlite'),sources={'mastodon':{'enabled':False},'bluesky':{'enabled':False},'x':{'enabled':True,'max_posts_per_tag':4,'budget_usd':0.25}},alert={})
             store=collect(cfg,log=lambda *a:None)
             self.assertEqual(len(store.posts()),4)
-            self.assertAlmostEqual(store.spent(),0.07)
+            self.assertAlmostEqual(store.spent(),0.03)
             self.assertEqual(store.coverage()[0]['status'],'exhausted')
             self.assertEqual(len(store.ledger()),4)
             state=json.loads(store.db.execute("SELECT state FROM checkpoints WHERE source='x-search'").fetchone()[0])
             self.assertEqual(state['newest'],'1004')
             self.assertEqual(state['status'],'exhausted')
             collect(cfg,log=lambda *a:None).close()
-            self.assertAlmostEqual(store.spent(),0.07)  # same fixed interval is not re-read
+            self.assertAlmostEqual(store.spent(),0.03)  # same fixed interval is not re-read
 
 
 class CountsThrottleTests(unittest.TestCase):

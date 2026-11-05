@@ -259,13 +259,32 @@ def hour_profile(posts):
     n = sum(h) or 1; best = max(((sum(h[(s + k) % 24] for k in range(8)) / n, s) for s in range(24)))
     return dict(hours=h, band_share=best[0], band_start=best[1], band_end=(best[1] + 8) % 24)
 
-def hour_comparison(posts, subset_accounts):
+def hour_comparison(posts, subset_accounts, baseline_posts=None):
     """Compare both populations in the subset's same eight-hour UTC band."""
     selected=[p for p in posts if account_key(p) in subset_accounts]
     if not selected: return None
     profile=hour_profile(selected)
-    same_band=sum(1 for p in posts if (int(p['created_utc'][11:13])-profile['band_start'])%24<8)/(len(posts) or 1)
-    return dict(profile,all_share=same_band,all_hours=hour_profile(posts)['hours'],selected_posts=len(selected))
+    baseline_posts = posts if baseline_posts is None else baseline_posts
+    def share(rows): return sum(1 for p in rows if (int(p['created_utc'][11:13])-profile['band_start'])%24<8)/(len(rows) or 1)
+    return dict(profile,all_share=share(baseline_posts),all_hours=hour_profile(baseline_posts)['hours'],selected_posts=len(selected),
+                scoped_share=share(posts),baseline_posts=len(baseline_posts))
+
+
+def count_hour_comparison(counts, band_start, start, end):
+    """Keep queries separate; only use whole stored UTC hours inside the bounds."""
+    by = collections.defaultdict(list)
+    for row in counts:
+        t = parse_time(row['start_utc'])
+        if t.minute or t.second or not start <= t or t + timedelta(hours=1) > end: continue
+        if row.get('end_utc') and parse_time(row['end_utc']) != t + timedelta(hours=1): continue
+        by[(row['source'], row['tag'], row['query_hash'])].append(row)
+    out = []
+    for (source, tag, fingerprint), rows in sorted(by.items()):
+        total = sum(r['uses'] for r in rows)
+        if not total: continue
+        inside = sum(r['uses'] for r in rows if (parse_time(r['start_utc']).hour-band_start)%24 < 8)
+        out.append(dict(source=source,tag=tag,query_hash=fingerprint,hours=len(rows),uses=total,share=inside/total))
+    return out
 
 
 def account_features(posts, now=None, windows=(), burst_accounts=(), min_posts=3, top=40):

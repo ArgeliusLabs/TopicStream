@@ -4,6 +4,8 @@ A local investigation workspace for finding recurring coordination in public soc
 
 **Coordination is not proof of inauthenticity.** TopicStream identifies behavioral leads. It does not determine who controls an account, whether an identity is deceptive, or who sponsors an operation. An empty result with limited coverage is reported as **insufficient evidence**.
 
+Choose the [CLI workflow](#cli-workflow) for exports, scripts, and repeatable reports, or [start the browser workspace](#start-the-workspace) for interactive investigations. Both use the same collection and analysis code.
+
 ## Live example: Singapore haze
 
 [Read the public sample report](docs/examples/singapore-haze/report.md) from our November 5, 2026 X pilot. It shows the search scope, observed activity by day, detector settings, interpretation, coverage gaps, and estimated collection cost.
@@ -13,7 +15,8 @@ A local investigation workspace for finding recurring coordination in public soc
 | Distinct posts retrieved | 285 |
 | Posts analyzed / accounts | 284 / 238 |
 | Brief repost clusters / recurring groups | 4 / 0 |
-| Local estimated cost | About US$4.02 initially; US$7.98 including a verification reread |
+| Pilot cost inferred from reported account activity | About US$1.44 ($1.435 before cent rounding); not a separately verified debit |
+| Historical 0.3.1 local estimate | US$4.02 initially; US$7.98 with verification, overstating the reported billing behavior |
 
 **No strong recurring coordination was detected in this sample at the default thresholds.** This is a worked investigation example, not evidence that the wider topic is free of CIB or a benchmark of detection accuracy. The public report contains aggregate results; individual posts and account evidence remain local. See the [technical pilot notes](docs/live-pilot-2026-11-05.md) for collection fixes and billing caveats. To explore supporting evidence for a detected group without credentials or charges, use the synthetic example below.
 
@@ -81,7 +84,7 @@ Required columns: `timestamp_utc`, `handle`, `text`. Recommended: `post_id`, `au
 
 UI limits: 10 MB and 50,000 post rows; 1 MB profiles. Imports are validated before posts are stored. Only matching posts within the saved case interval appear in analysis. Try [synthetic-posts.csv](examples/synthetic-posts.csv) with phrase `water quality`, start `2026-10-29`, end `2026-11-05`. These nine invented posts demonstrate three recurring accounts; with no independent background, the shuffled timing comparison remains equally coordinated.
 
-## Existing CLI
+## CLI workflow
 
 Copy `config.example.json` to `config.json`, edit its terms and sources, then:
 
@@ -103,7 +106,9 @@ For reproducible CLI reports, set `start_utc` and `end_utc`. Otherwise, collecti
 
 Every X counts/search request reserves its maximum estimated cost before it is sent. A successful response settles against returned records. Interrupted or ambiguous calls retain the reservation. Completed X pages and their next token are saved in one transaction. Retry collection to resume a partial window; the newest observed ID never advances progress past uncollected pages.
 
-The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. Configurable prices include posts and expanded author profiles; verify them for your account. The local estimate conservatively counts repeated returned resources without assuming provider deduplication. See [cost controls](docs/x-costs.md).
+The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. The default estimate excludes author-expansion charges and deduplicates successfully returned IDs within a UTC day, database, and credential scope. Reservations remain conservative; before/after credit observations show account-wide movement separately. See [cost controls and reported measurements](docs/x-costs.md).
+
+Reports show rows in analysis versus all stored rows in the interval, headline activity triggers, and posting-hour comparisons against both the full stored interval and each available X query's hourly counts. Detailed pair and post evidence is collapsible, with working evidence links, a light theme, and expanded light-background printing. See [current synthetic report screenshots](docs/report-examples.md).
 
 ## Development and validation
 

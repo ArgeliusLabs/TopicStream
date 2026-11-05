@@ -1,17 +1,68 @@
 {
   "name": "OSINT and infosec community (Mastodon only, no credentials)",
-  "tags": ["osint", "infosec", "cybersecurity"],
+  "tags": [
+    "osint",
+    "infosec",
+    "cybersecurity"
+  ],
   "terms": [],
   "days": 7,
   "db": "osint.sqlite",
   "report": "osint_report.html",
   "pause_seconds": 0.5,
   "sources": {
-    "mastodon": {"enabled": true, "instances": ["mastodon.social", "fosstodon.org", "infosec.exchange", "mstdn.social"], "max_pages": 5},
-    "bluesky":  {"enabled": false},
-    "x":        {"enabled": false}
+    "mastodon": {
+      "enabled": true,
+      "instances": [
+        "mastodon.social",
+        "fosstodon.org",
+        "infosec.exchange",
+        "mstdn.social"
+      ],
+      "max_pages": 5
+    },
+    "bluesky": {
+      "enabled": false
+    },
+    "x": {
+      "enabled": false,
+      "query_extra": "",
+      "prices": {
+        "post_read": 0.005,
+        "counts_recent": 0.005,
+        "counts_all": 0.01
+      }
+    }
   },
-  "alert": {"window_minutes": 30, "uses": 200, "ratio": 10, "uses_per_account": 5, "min_uses": 10},
-  "burst": {"window_minutes": 10, "minimum": 3},
-  "discover": {"auto": false, "max_new_per_cycle": 1, "max_tags": 12, "min_accounts": 3, "min_posts": 3, "show": 25}
+  "alert": {
+    "window_minutes": 30,
+    "uses": 200,
+    "ratio": 10,
+    "uses_per_account": 5,
+    "min_uses": 10
+  },
+  "burst": {
+    "window_minutes": 10,
+    "minimum": 3
+  },
+  "discover": {
+    "auto": false,
+    "max_new_per_cycle": 1,
+    "max_tags": 12,
+    "min_accounts": 3,
+    "min_posts": 3,
+    "show": 25
+  },
+  "exclude_terms": [],
+  "languages": [],
+  "detector": {
+    "window_minutes": 10,
+    "episode_gap_minutes": 60,
+    "min_episodes": 3,
+    "min_days": 2,
+    "min_accounts": 3,
+    "max_event_accounts": 100,
+    "max_posts": 20000,
+    "baseline_repeats": 5
+  }
 }

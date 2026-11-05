@@ -20,7 +20,7 @@ class CollectionCancelled(RuntimeError):
 
 class X:
     name = 'x'
-    COUNT_RECENT, COUNT_ALL, POST_READ = 0.005, 0.010, 0.005
+    COUNT_RECENT, COUNT_ALL, POST_READ, USER_READ = 0.005, 0.010, 0.005, 0.010
     FIELDS = 'created_at,entities,public_metrics,referenced_tweets,lang,author_id,in_reply_to_user_id'
 
     def __init__(self, http, log=print, max_posts_per_tag=200, budget_usd=2.0, bearer=None,
@@ -38,7 +38,7 @@ class X:
         self.sample_per_day, self.sample_windows = int(sample_per_day or 0), max(1, int(sample_windows_per_day or 6))
         self.counts_every, self.counts_fetched = int(counts_every_minutes), dict(counts_fetched or {})
         self.save_counts_fetched = save_counts_fetched or (lambda *args: None)
-        self.prices = {'post_read': self.POST_READ, 'counts_recent': self.COUNT_RECENT, 'counts_all': self.COUNT_ALL}
+        self.prices = {'post_read': self.POST_READ, 'user_read': self.USER_READ, 'counts_recent': self.COUNT_RECENT, 'counts_all': self.COUNT_ALL}
         self.prices.update(prices or {})
         if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in self.prices.values()):
             raise ValueError('X prices must be nonnegative numbers')
@@ -64,17 +64,25 @@ class X:
 
     def count_price(self): return self.prices['counts_all' if self.archive else 'counts_recent']
 
+    def search_unit_price(self):
+        # Our only expansion is author_id: at most one user resource per post.
+        return self.prices['post_read'] + self.prices['user_read']
+
     def estimate(self, tags, terms=(), days=7):
         reads = max(10, self.max_posts)
         if self.sample_per_day:
             reads = min(reads, max(10, self.sample_per_day // self.sample_windows) * self.sample_windows * (days + 1))
-        return (len(tags) + len(terms)) * ((2 + days * 24 // 500) * self.count_price() + reads * self.prices['post_read'])
+        return (len(tags) + len(terms)) * ((2 + days * 24 // 500) * self.count_price() + reads * self.search_unit_price())
 
     def _get(self, url, q):
         if self.cancelled(): raise CollectionCancelled('Collection cancelled; completed pages are saved')
         counted = '/counts/' in url
         paid = counted or '/search/' in url
-        price = self.count_price() if counted else int(q.get('max_results', 0)) * self.prices['post_read']
+        expansions = set(q.get('expansions', '').split(',')) - {''}
+        if paid and not counted and expansions - {'author_id'}:
+            raise ValueError('Unpriced search expansion; only author_id is supported')
+        unit_price = self.search_unit_price() if 'author_id' in expansions else self.prices['post_read']
+        price = self.count_price() if counted else int(q.get('max_results', 0)) * unit_price
         reservation = None
         if paid:
             if self.store:
@@ -97,7 +105,11 @@ class X:
                     # Compatibility retry is a separate, fully reserved request.
                     return self._get(url,retry)
             raise
-        actual = (self.count_price() if counted else len(result[0].get('data', [])) * self.prices['post_read']) if paid else 0
+        actual = 0
+        if paid:
+            actual = self.count_price() if counted else (
+                len(result[0].get('data', [])) * self.prices['post_read']
+                + len(result[0].get('includes', {}).get('users', [])) * self.prices['user_read'])
         self.spent += actual
         if reservation: self.store.settle_request(reservation, actual, iso(utcnow()))
         return result

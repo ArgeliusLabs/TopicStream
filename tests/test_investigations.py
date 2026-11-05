@@ -97,6 +97,32 @@ class IdentityAndScopeTests(unittest.TestCase):
 
 
 class LedgerAndResumeTests(unittest.TestCase):
+    def test_author_expansion_budget_is_checked_before_http(self):
+        with Store(':memory:') as store:
+            http=ReplayHttp()
+            x=X(http,store=store,bearer='tok',budget_usd=.10,max_posts_per_tag=10)
+            with self.assertRaises(BudgetExceeded): x.posts(['t'],[],NOW-timedelta(days=1),NOW)
+            self.assertEqual(http.calls,[]); self.assertEqual(store.spent(),0)
+
+    def test_search_settles_returned_posts_and_author_profiles(self):
+        page=x_search_page([1,4])  # Two posts by one author, one expanded profile.
+        with Store(':memory:') as store:
+            x=X(ReplayHttp(page),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
+            x.posts(['t'],[],NOW-timedelta(days=1),NOW)
+            self.assertAlmostEqual(store.spent(),.02)
+            self.assertEqual(store.ledger()[0]['reserved_micros'],150000)
+
+    def test_uncertain_search_retains_post_and_profile_reservation(self):
+        with Store(':memory:') as store:
+            x=X(ReplayHttp(TimeoutError('network')),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10)
+            with self.assertRaises(TimeoutError): x.posts(['t'],[],NOW-timedelta(days=1),NOW)
+            self.assertAlmostEqual(store.spent(),.15)
+
+    def test_unpriced_expansions_are_rejected_before_http(self):
+        http=ReplayHttp(); x=X(http,bearer='tok')
+        with self.assertRaises(ValueError): x._get(x._ep('search'),{'max_results':10,'expansions':'referenced_tweets.id'})
+        self.assertEqual(http.calls,[])
+
     def test_store_failure_does_not_save_advanced_cursor_without_posts(self):
         with Store(':memory:') as store:
             original=store.save_page
@@ -117,11 +143,11 @@ class LedgerAndResumeTests(unittest.TestCase):
             x=X(http,store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
             x.posts(['Election2026'],[],NOW-timedelta(days=1),NOW)
             self.assertEqual(len(store.ledger()),2); self.assertEqual(store.ledger()[0]['status'],'uncertain')
-            self.assertIn('post.fields=',http.calls[-1]); self.assertAlmostEqual(store.spent(),.055)
+            self.assertIn('post.fields=',http.calls[-1]); self.assertAlmostEqual(store.spent(),.165)
 
     def test_api_error_payload_never_exhausts_coverage(self):
         with Store(':memory:') as store:
-            x=X(ReplayHttp({'errors':[{'detail':'partial response'}]}),store=store,bearer='tok',budget_usd=1,log=lambda *a:None)
+            x=X(ReplayHttp({'errors':[{'detail':'partial response'}]}),store=store,bearer='tok',budget_usd=2,log=lambda *a:None)
             with self.assertRaises(RuntimeError): x.posts(['Election2026'],[],NOW-timedelta(days=1),NOW)
             self.assertEqual(store.coverage()[0]['status'],'partial')
 

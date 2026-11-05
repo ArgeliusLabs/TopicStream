@@ -99,7 +99,7 @@ def buy_windows(cfg,store,wanted,log=print,dry=False):
         if any(w['tag']==label and w['start_utc']==start and w['status']=='exhausted' and w['query_hash']==fingerprint for w in store.windows()): continue
         plan.append((label,start,expected))
     if not plan: log('No unfinished requested windows'); return 0
-    estimate=sum(expected for _,_,expected in plan)*x.prices['post_read']
+    estimate=sum(expected for _,_,expected in plan)*x.search_unit_price()
     log(f'{len(plan)} window(s), estimated ${estimate:.4f}; requests also reserve their full page cost before reading')
     if dry or not x.available(): return 0
     run=store.start_run(iso(now)); total=0; errors=[]

@@ -2,7 +2,7 @@
 
 `budget_usd` limits the accumulated local ledger in one database, including prior runs, pending reservations, and unresolved requests. It is not a global limit across cases or an authoritative provider invoice.
 
-The supplied configurable estimates are `post_read: 0.005`, `counts_recent: 0.005`, and `counts_all: 0.010` USD. These are inherited planning defaults, not a verified current price quote. Set them from your account's actual pricing and retain provider billing limits separately. See the [X developer documentation](https://docs.x.com/) for your access requirements and prices.
+The configurable defaults are `post_read: 0.005`, `user_read: 0.010`, `counts_recent: 0.005`, and `counts_all: 0.010` USD. These match [public X pricing](https://docs.x.com/x-api/getting-started/pricing) checked November 5, 2026. Verify account-specific rates and retain provider billing limits separately. Search includes `author_id` expansions, so the estimate budgets for returned author profiles as well as posts. The local ledger does not assume daily provider deduplication; repeated resources are conservatively counted again, so the estimate may exceed the invoice.
 
 ```json
 {
@@ -12,13 +12,13 @@ The supplied configurable estimates are `post_read: 0.005`, `counts_recent: 0.00
   "query_extra": "",
   "archive": false,
   "read_mode": "always",
-  "prices": {"post_read": 0.005, "counts_recent": 0.005, "counts_all": 0.010}
+  "prices": {"post_read": 0.005, "user_read": 0.010, "counts_recent": 0.005, "counts_all": 0.010}
 }
 ```
 
-Before every counts request, reserve its configured request price. Before every search page, reserve `max_results × post_read`. A successful page settles against the number of records returned. An uncertain network/API failure retains its full reservation because a failed client response cannot prove the provider did not bill. The ledger records endpoint, time, query hash, status, reservation, and settlement.
+Before every counts request, reserve its configured request price. Before every search page, reserve `max_results × (post_read + user_read)`, allowing one author profile per post. A successful page settles against returned posts and included users. Other expansion types are rejected until they have an explicit pricing model. An uncertain network/API failure retains its full reservation because a failed client response cannot prove the provider did not bill. The ledger records endpoint, time, query hash, status, reservation, and settlement.
 
-For example, at the supplied estimate, a page requesting 100 records requires $0.50 available before it is sent. Ten returned records settle to $0.05. A later page is refused if its maximum would exceed the remaining cap, even when the expected result count is smaller. X recent search's documented minimum page size is 10, so a configured cap smaller than 10 is a soft limit; the reservation still covers all 10. [X recent search parameters](https://docs.x.com/x-api/posts/search-recent-posts).
+For example, at the supplied estimate, a page requesting 100 posts with author profiles requires $1.50 available before it is sent. Ten returned posts and six included profiles settle to $0.11 locally. A later page is refused if its maximum would exceed the remaining cap, even when the expected result count is smaller. X recent search's documented minimum page size is 10, so a configured cap smaller than 10 is a soft limit; the reservation still covers all 10. [X recent search parameters](https://docs.x.com/x-api/posts/search-recent-posts).
 
 Paid requests have no hidden HTTP retry loop. A field-name compatibility retry is separately reserved and the first failed request remains uncertain. Other failures require another collection pass. Prices must be finite and nonnegative; zero is allowed for explicitly configured mock/free use and provides no spending protection against an incorrectly priced provider.
 

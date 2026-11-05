@@ -31,6 +31,7 @@
       "counts_every_minutes": 60,
       "prices": {
         "post_read": 0.005,
+        "user_read": 0.010,
         "counts_recent": 0.005,
         "counts_all": 0.01
       }

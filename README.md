@@ -90,7 +90,7 @@ For reproducible CLI reports, set `start_utc` and `end_utc`. Otherwise, collecti
 
 Every X counts/search request reserves its maximum estimated cost before it is sent. A successful response settles against returned records. Interrupted or ambiguous calls retain the reservation. Completed X pages and their next token are saved in one transaction. Retry collection to resume a partial window; the newest observed ID never advances progress past uncollected pages.
 
-The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. Configurable price defaults are estimates carried forward from the earlier version; verify them for your account. See [cost controls](docs/x-costs.md).
+The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. Configurable prices include posts and expanded author profiles; verify them for your account. The local estimate conservatively counts repeated returned resources without assuming provider deduplication. See [cost controls](docs/x-costs.md).
 
 ## Development and validation
 

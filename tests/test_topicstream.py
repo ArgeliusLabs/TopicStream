@@ -124,7 +124,7 @@ def x_search_page(ids, next_token=None, rt=False):
                            public_metrics=dict(retweet_count=1, like_count=2, reply_count=0),
                            entities=dict(hashtags=[dict(tag='Election2026')], urls=[dict(expanded_url=f'https://news.example/{i}', unwound_url=f'https://news.example/{i}'), dict(expanded_url='https://x.com/u/status/1')]),
                            referenced_tweets=[dict(type='retweeted', id='9')] if rt else []) for i in ids],
-                includes=dict(users=[dict(id=f'u{k}', username=f'user{k}', created_at='2026-10-01T00:00:00.000Z', public_metrics=dict(followers_count=10 * k)) for k in range(3)]),
+                includes=dict(users=[dict(id=f'u{k}', username=f'user{k}', created_at='2026-10-01T00:00:00.000Z', public_metrics=dict(followers_count=10 * k)) for k in sorted({i % 3 for i in ids})]),
                 meta=dict(newest_id=str(max(ids)), oldest_id=str(min(ids)), result_count=len(ids), **({'next_token': next_token} if next_token else {})))
 
 class XFakeHttp:
@@ -151,7 +151,7 @@ class XTests(unittest.TestCase):
         self.assertEqual(len(posts), 4); self.assertEqual(sum(p.is_repost for p in posts), 2)
         self.assertEqual(posts[0].links, ['https://news.example/1001']); self.assertEqual(posts[0].author, 'user2'); self.assertEqual(posts[0].author_followers, 20)
         self.assertEqual(posts[0].matched, ['#election2026']); self.assertEqual(saved, {'#election2026': '1004'})
-        self.assertAlmostEqual(x.spent, 2 * 0.005 + 4 * 0.005)
+        self.assertAlmostEqual(x.spent, 2 * 0.005 + 4 * 0.015)
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[2]).query); self.assertEqual(q['query'], ['#Election2026 -is:retweet']); self.assertIn('start_time', q); self.assertNotIn('since_id', q)
     def test_legacy_newest_id_does_not_skip_unretrieved_history(self):
         http = XFakeHttp(); x = X(http, log=lambda *a: None, max_posts_per_tag=10, budget_usd=5, bearer='tok', cursors={'#election2026': '1004'})
@@ -159,10 +159,10 @@ class XTests(unittest.TestCase):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[0]).query); self.assertNotIn('since_id', q); self.assertIn('start_time', q)
         self.assertEqual([p.post_id for p in posts], ['1001', '1002', '1003', '1004']); self.assertEqual(x.cursors['#election2026'], '1004')
     def test_budget_counts_what_was_already_spent(self):
-        x = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.0, bearer='tok', spent_before=0.80)
-        self.assertAlmostEqual(x.estimate(['a']), 0.01 + 0.5)
+        x = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.6, bearer='tok', spent_before=0.80)
+        self.assertAlmostEqual(x.estimate(['a']), 0.01 + 1.5)
         with self.assertRaises(BudgetExceeded): x.posts(['a'], [], NOW - timedelta(days=7), NOW)
-        x2 = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.0, bearer='tok', spent_before=0.0)
+        x2 = X(XFakeHttp(), log=lambda *a: None, max_posts_per_tag=100, budget_usd=1.6, bearer='tok', spent_before=0.0)
         x2.posts(['a'], [], NOW - timedelta(days=7), NOW)   # within budget: runs
     def test_dotenv(self):
         with stored_directory() as d:
@@ -184,7 +184,7 @@ class TermsAndDiscoveryTests(unittest.TestCase):
     def test_x_term_is_a_quoted_phrase_and_counts_both(self):
         http = XFakeHttp(); x = X(http, log=lambda *a: None, max_posts_per_tag=4, budget_usd=5, bearer='tok', query_extra='lang:en')
         self.assertEqual(x.query('Teluk Rawa', 'term'), '"Teluk Rawa" lang:en'); self.assertEqual(x.query('OSINT'), '#OSINT lang:en')
-        self.assertAlmostEqual(x.estimate(['a'], ['b c']), 2 * (0.01 + 0.05))
+        self.assertAlmostEqual(x.estimate(['a'], ['b c']), 2 * (0.01 + 0.15))
         rows = x.tag_days(['Election2026'], NOW, NOW - timedelta(days=7), terms=['bilge water'])
         self.assertEqual({r[2] for r in rows}, {'#election2026', 'bilge water'})
         q = urllib.parse.parse_qs(urllib.parse.urlparse(http.calls[2]).query); self.assertEqual(q['query'], ['"bilge water" lang:en'])
@@ -203,8 +203,8 @@ class SamplingTests(unittest.TestCase):
         self.assertGreaterEqual(len({q['start_time'][0][:10] for q in qs}), 7)                       # every day covered
         self.assertEqual(sorted({q['start_time'][0][11:13] for q in qs}), ['00', '04', '08', '12', '16', '20'])   # six 4-hour windows from midnight
         self.assertTrue(all('search/all' in u for u in http.calls))
-        self.assertGreaterEqual(len(posts), 7 * 6 * 4); self.assertAlmostEqual(x.spent, len(posts) * 0.005)
-        self.assertAlmostEqual(x.estimate(['a'], [], 21), (1 + (1 + 21 * 24 // 500)) * 0.01 + min(10000, 10 * 6 * 22) * 0.005)
+        self.assertGreaterEqual(len(posts), 7 * 6 * 4); self.assertAlmostEqual(x.spent, len(posts) * 0.015)
+        self.assertAlmostEqual(x.estimate(['a'], [], 21), (1 + (1 + 21 * 24 // 500)) * 0.01 + min(10000, 10 * 6 * 22) * 0.015)
     def test_velocity_from_counts(self):
         counts = [dict(source='x', tag='#t', start_utc=f'2026-10-{14 + i // 24:02d}T{i % 24:02d}:00:00Z', uses=5) for i in range(200)]
         counts[170]['uses'] = 784; counts[150]['uses'] = 120
@@ -218,17 +218,17 @@ class CollectWiringTests(unittest.TestCase):
         from topicstream.__main__ import collect
         fake=XFakeHttp()
         with stored_directory() as d, patch.dict(os.environ,{'X_BEARER_TOKEN':'tok'}), patch('topicstream.sources.Http.get',lambda self,url,headers=None,tries=4:fake.get(url,headers)):
-            cfg=dict(tags=['Election2026'],terms=[],days=7,start_utc='2026-11-01T00:00:00Z',end_utc='2026-11-05T00:00:00Z',db=str(Path(d)/'c.sqlite'),sources={'mastodon':{'enabled':False},'bluesky':{'enabled':False},'x':{'enabled':True,'max_posts_per_tag':4,'budget_usd':0.07}},alert={})
+            cfg=dict(tags=['Election2026'],terms=[],days=7,start_utc='2026-11-01T00:00:00Z',end_utc='2026-11-05T00:00:00Z',db=str(Path(d)/'c.sqlite'),sources={'mastodon':{'enabled':False},'bluesky':{'enabled':False},'x':{'enabled':True,'max_posts_per_tag':4,'budget_usd':0.25}},alert={})
             store=collect(cfg,log=lambda *a:None)
             self.assertEqual(len(store.posts()),4)
-            self.assertAlmostEqual(store.spent(),0.03)
+            self.assertAlmostEqual(store.spent(),0.07)
             self.assertEqual(store.coverage()[0]['status'],'exhausted')
             self.assertEqual(len(store.ledger()),4)
             state=json.loads(store.db.execute("SELECT state FROM checkpoints WHERE source='x-search'").fetchone()[0])
             self.assertEqual(state['newest'],'1004')
             self.assertEqual(state['status'],'exhausted')
             collect(cfg,log=lambda *a:None).close()
-            self.assertAlmostEqual(store.spent(),0.03)  # same fixed interval is not re-read
+            self.assertAlmostEqual(store.spent(),0.07)  # same fixed interval is not re-read
 
 
 class CountsThrottleTests(unittest.TestCase):

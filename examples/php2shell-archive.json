@@ -34,6 +34,7 @@
       "sample_windows_per_day": 6,
       "prices": {
         "post_read": 0.005,
+        "user_read": 0.010,
         "counts_recent": 0.005,
         "counts_all": 0.01
       }

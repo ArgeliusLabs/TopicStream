@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.5 (November 2026)
+
+- The posting-hour chart compares the flagged accounts' band with the share of all posts in that same band (it used to show all posts' own tightest band, which is a different number).
+
 ## 0.2.4 (November 2026)
 
 - Daily bars stop at 72px wide, so a three-day database does not draw three slabs.

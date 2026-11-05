@@ -89,6 +89,7 @@ class ExerciseDataTests(unittest.TestCase):
             co = A.cooccurrence(posts, '#telukrawah'); self.assertIn('#sekawandeal', [c['tag'] for c in co])
             html = R.render(s, cfg, now=datetime(2026, 3, 9, tzinfo=timezone.utc)); self.assertIn('ALERT', html)
             self.assertIn('Imported export (ciap)', html); self.assertNotIn('<b>Mastodon.</b>', html)                              # platform notes follow what the database holds
+            self.assertIn('Export: 2026-02-01 to 2026-03-08', html); self.assertIn('Export depth', html); self.assertNotIn('max_pages', html)
             prof = CIAP.parent / 'ciap_account_profiles_2026-03-09.csv'
             if prof.exists():
                 cfg2 = dict(cfg, db=str(Path(d) / 'c2.sqlite')); import_csv(cfg2, str(CIAP), 'ciap', log=lambda *a: None, accounts=str(prof))

@@ -44,6 +44,8 @@ def render(store, cfg, now=None):
     ORIG.clear(); ORIG.update({t.lower(): t for t in terms})
     slug = lambda t: ('tag-' if t.startswith('#') else 'phrase-') + (re.sub(r'[^a-z0-9]+', '-', t.lower()).strip('-') or 'x')   # a hashtag and a phrase with the same word get different anchors
     posts = store.posts(); tds = store.tag_days(); runs = store.runs(); name = cfg.get('name', 'Topic stream'); xcounts = store.counts('x'); xspent = store.spent('x'); wins = store.windows()
+    present = {p['source'] for p in posts} | {r['source'] for r in tds} | ({'x'} if xcounts or xspent else set()) | ({'mastodon'} if any('mastodon' in (r['notes'] or '') for r in runs) else set()) | ({'bluesky'} if any('bluesky' in (r['notes'] or '') for r in runs) else set())
+    imported = sorted(src for src in present if src not in ('mastodon', 'bluesky', 'x')); import_only = bool(imported) and not (present - set(imported))
     al = cfg.get('alert', {}); win = int(al.get('window_minutes', 30))
     sources = sorted({p['source'] for p in posts}); by_source = {s: sum(1 for p in posts if p['source'] == s) for s in sources}
     out = []
@@ -53,7 +55,7 @@ def render(store, cfg, now=None):
     for sec, label in [('alerts', 'alerts'), ('overview', 'overview')] + [(slug(t), disp(t)) for t in tags] + [('windows', 'complete windows'), ('bursts', 'bursts'), ('accounts', 'accounts'), ('infrastructure', 'infrastructure'), ('candidates', 'candidates'), ('sources', 'sources')]: w(f'<a href="#{esc(sec)}">{esc(label)}</a>')
     spend_line = f'X spend recorded: ${xspent:.2f}<br>' if xspent else ''
     w(f'<div class="meta">{len(posts):,} posts stored<br>{", ".join(f"{s} {n:,}" for s, n in by_source.items()) or "no sources ran"}<br>{len(runs)} collection run(s)<br>{spend_line}generated {now.strftime("%Y-%m-%d %H:%M")} UTC</div></div>')
-    w(f'<div class="tm"><h2>Topic stream: {esc(name)}</h2><div class="sub">Window: {days} days ending {esc(A.end_day(posts).isoformat())} · tags {esc(", ".join("#" + t for t in cfg["tags"]) or "none")}' + (f' · phrases {esc(", ".join(chr(34) + t + chr(34) for t in terms))}' if terms else '') + f' · sources: {esc(", ".join(sources) or "none")} · alert window {win} min</div>')
+    w(f'<div class="tm"><h2>Topic stream: {esc(name)}</h2><div class="sub">{"Export: " + esc(min(p["created_utc"] for p in posts)[:10]) + " to " + esc(max(p["created_utc"] for p in posts)[:10]) if import_only and posts else f"Window: {days} days ending {esc(A.end_day(posts).isoformat())}"} · tags {esc(", ".join("#" + t for t in cfg["tags"]) or "none")}' + (f' · phrases {esc(", ".join(chr(34) + t + chr(34) for t in terms))}' if terms else '') + f' · sources: {esc(", ".join(sources) or "none")} · alert window {win} min</div>')
 
     # ---- alerts
     w('<h3 id="alerts">Velocity alerts</h3>')
@@ -93,7 +95,8 @@ def render(store, cfg, now=None):
         w(f'<div class="tile"><div class="k">Zero days (X counts)</div><div class="v">{len(zero)}</div><div class="d">{esc(", ".join(d[5:] + " " + t for t, d in zero[:3]))}{"…" if len(zero) > 3 else ""}{"" if zero else "every tracked day had posts"}</div></div></div>')
     else:
         w(f'<div class="tile"><div class="k">Zero days</div><div class="v">{len(T["zero_days"])}</div><div class="d">{esc(", ".join(d[5:] + " " + t for t, d in T["zero_days"][:3]))}{"…" if len(T["zero_days"]) > 3 else ""}</div></div></div>')
-    w('<div class="how"><b>Read these carefully:</b> "posts" are what this collection holds (Mastodon and X include reposts; Bluesky search returns originals only), "originating accounts" is distinct authors, and a zero day is zero <em>observed by this collection</em>, which is a statement about the collector before it is a statement about the world.</div>')
+    if import_only: w('<div class="how"><b>Read these carefully:</b> "posts" are the rows of the export (what the platform chose to include, replies and all; reposts only if it exported them), "originating accounts" is distinct authors, and a zero day is zero <em>in the export</em>, which is a statement about the export before it is a statement about the world.</div>')
+    else: w('<div class="how"><b>Read these carefully:</b> "posts" are what this collection holds (Mastodon and X include reposts; Bluesky search returns originals only), "originating accounts" is distinct authors, and a zero day is zero <em>observed by this collection</em>, which is a statement about the collector before it is a statement about the world.</div>')
 
     # ---- per tag
     for t in tags:
@@ -106,7 +109,10 @@ def render(store, cfg, now=None):
         w('</div><div class="xl">');
         for d, u, a in series: w(f'<div>{d[5:]}<small>{a} acct</small></div>')
         w('</div>')
-        if mine:
+        if mine and import_only:
+            oldest = min(p['created_utc'] for p in mine)
+            w(f'<div class="how"><b>Export depth:</b> the oldest post carrying this tag in the export is from {esc(oldest.replace("T", " ")[:16])} UTC. Days before the export begins are blank because the export does not cover them, not because nobody posted.</div>')
+        elif mine:
             oldest = min(p['created_utc'] for p in mine); depth = (now - parse_time(oldest)).total_seconds() / 86400
             w(f'<div class="how"><b>Collection depth:</b> the oldest post collected for this tag is from {esc(oldest.replace("T", " ")[:16])} UTC, {depth:.1f} days back. Days before that are blank because the collector stopped paginating (<code>max_pages</code>), not because nobody posted; the platform-reported table on the left goes back further.</div>')
         w('</div>')
@@ -129,6 +135,7 @@ def render(store, cfg, now=None):
             w('<table class="tt compact"><tr><th>Day</th>' + ''.join(f'<th>{esc(inst)}</th>' for src, inst in cols) + '</tr>')
             for d in days_:
                 w(f'<tr><td>{esc(d[5:])}</td>' + ''.join((lambda r: f'<td>{r["uses"]:,} / {num(r["accounts"]) if r["accounts"] is not None else "n/a"}</td>' if r else '<td>–</td>')(cell.get((d, src, inst))) for src, inst in cols) + '</tr>')
+        elif import_only: w('<table class="tt"><tr><td>No platform-side counts in the export: uses and originating accounts per day as the platform itself reports them are not among its columns, so every count on this page is derived from the rows.</td></tr>')
         else: w('<table class="tt"><tr><td>No platform-side counts for this tag (Bluesky has none; X counts need a token).</td></tr>')
         w(f'</table><div class="how"><b>How:</b> Mastodon <code>GET /api/v1/tags/{esc(t.lstrip("#"))}</code> returns seven days of uses and accounts as <em>that server</em> saw them; different servers see different slices of the fediverse, so rows do not add. X <code>GET /2/tweets/counts/recent</code> gives counts only. First observation in our own store: {esc(fs or "none")}.</div></div>')
         # velocity detail
@@ -242,8 +249,6 @@ def render(store, cfg, now=None):
     for r in runs[-10:]: w(f'<tr><td class="t">{esc(r["started_utc"])}</td><td class="t">{esc(r["finished_utc"] or "running")}</td><td>{esc(json.dumps(json.loads(r["notes"]) if r["notes"] else {}, ensure_ascii=False))}</td></tr>')
     meters = [json.loads(r['notes'])['x_meter_before'] for r in runs if r['notes'] and 'x_meter_before' in json.loads(r['notes'])]
     w('</table>' + (f'<div class="how"><b>Two ledgers:</b> the tool\'s ledger above counts every post X returned, ${xspent:.2f}. X\'s own meter (<code>GET /2/usage/tweets</code>) counts unique posts per billing cycle; it read {meters[0]:,} at the first run here that recorded it and {meters[-1]:,} at the latest, so re-reads between runs cost nothing. The invoice follows the meter.</div>' if meters else '') + '</div>')
-    present = {p['source'] for p in posts} | {r['source'] for r in tds} | ({'x'} if xcounts or xspent else set()) | ({'mastodon'} if any('mastodon' in (r['notes'] or '') for r in runs) else set()) | ({'bluesky'} if any('bluesky' in (r['notes'] or '') for r in runs) else set())
-    imported = sorted(src for src in present if src not in ('mastodon', 'bluesky', 'x'))
     notes = []
     if 'mastodon' in present: notes.append('''<p><b>Mastodon.</b> No credentials. <code>/api/v1/tags/{name}</code> gives seven days of uses and accounts; <code>/api/v1/timelines/tag/{name}</code> gives the posts, 40 a page. Each server reports only what federated to it, so poll several and de-duplicate on the post URI (this tool does). Some servers require a token for public timelines and answer 401 or 422; the run log says which.</p>''')
     if 'bluesky' in present: notes.append('''<p><b>Bluesky.</b> Free app password required since the public AppView stopped serving <code>app.bsky.feed.searchPosts</code> unauthenticated. Search returns original posts only, so uses are undercounted relative to the other two; <code>hitsTotal</code> is approximate. For a true live stream, the Jetstream firehose is public and free (websocket), and is the next feature to add.</p>''')

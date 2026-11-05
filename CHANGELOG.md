@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.3 (November 2026)
+
+- Import-only databases read as what they are: the header shows the export's span, the depth note and the platform-counts panel say "export" rather than "collector", and the posts caveat describes export rows.
+
 ## 0.2.2 (November 2026)
 
 - `import-csv` records a run (file, rows, new, profiles joined) so the report's sources panel shows where imported posts came from; `import_csv(now=…)` for reproducible builds.

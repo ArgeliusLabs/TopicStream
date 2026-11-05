@@ -70,7 +70,9 @@ def render(store,cfg,now=None,result=None):
     alerts=[r for r in store.monitor_alerts() if r['tag'] in wanted and start<=parse_time(r['start_utc'])<end]
     if alerts: w(_table(['Source','Query','Interval','ALERT reasons'],[(esc(r['source']),esc(r['tag']),esc(r['start_utc']),esc('; '.join(r['payload']['reasons']))) for r in alerts]))
     for tag in tags:
-        series=A.daily_series(posts,tag,max(1,(end-start).days),end=(end-timedelta(seconds=1)).date()); maximum=max([u for _,u,_ in series]+[1])
+        last_day=(end-timedelta(seconds=1)).date()
+        calendar_days=(last_day-start.date()).days+1
+        series=A.daily_series(posts,tag,calendar_days,end=last_day); maximum=max([u for _,u,_ in series]+[1])
         w(f'<section class="card"><h3>{esc(tag)}</h3><div class="bars" role="img" aria-label="Observed posts per UTC day">'+''.join(f'<div class="bar" style="height:{max(1,int(145*u/maximum))}px" title="{esc(d)}: {u} posts from {a} accounts"></div>' for d,u,a in series)+'</div>')
         w(_table(['UTC day','Observed posts','Originating accounts'],[(esc(d),u,a) for d,u,a in series]))
         w('<details><summary>Related hashtags and linked domains</summary>'+_table(['Hashtag','Posts','Accounts'],[(esc(c['tag']),c['count'],c['accounts']) for c in A.cooccurrence(posts,tag)])+_table(['Domain','Posts','Accounts'],[(esc(c['domain']),c['posts'],c['accounts']) for c in A.top_domains(posts,tag)])+'</details>')

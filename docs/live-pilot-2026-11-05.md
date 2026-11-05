@@ -28,6 +28,7 @@ The post-usage meter updated asynchronously. Credit-balance readings immediately
 2. Request X's full-length note text and entities. This increased text-matching posts from 267 to 284 without adding new post IDs. Both legacy and current field names have regression coverage.
 3. Expose the documented credit-balance endpoint in `usage`, keeping it distinct from estimated costs.
 4. Calculate resource charges with decimal arithmetic before micro-dollar settlement.
+5. Include partial first/last UTC days in report charts; the initial render omitted the first date's 12 posts from the daily chart, while analysis totals were correct.
 
 ## Remaining limits
 

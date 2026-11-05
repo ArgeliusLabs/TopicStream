@@ -44,6 +44,19 @@ class ReplayHttp:
 
 
 class IdentityAndScopeTests(unittest.TestCase):
+    def test_report_daily_series_includes_partial_boundary_days(self):
+        with Store(':memory:') as store:
+            p=row('a',1); p.pop('key'); store.add_posts([Post(**p)])
+            cfg={'name':'Partial days','terms':['water quality'],'tags':[],
+                 'start_utc':'2026-10-29T17:00:00Z','end_utc':'2026-10-30T17:00:00Z'}
+            with patch.object(A,'daily_series',wraps=A.daily_series) as daily:
+                report.render(store,cfg,now=NOW)
+                self.assertEqual(daily.call_args.args[2],2)
+            cfg['end_utc']='2026-10-30T00:00:00Z'
+            with patch.object(A,'daily_series',wraps=A.daily_series) as daily:
+                report.render(store,cfg,now=NOW)
+                self.assertEqual(daily.call_args.args[2],1)
+
     def test_identity_separates_platforms_and_preserves_handle_changes(self):
         p=row('a',1); changed=dict(p,author='renamed')
         self.assertEqual(account_key(p),account_key(changed))

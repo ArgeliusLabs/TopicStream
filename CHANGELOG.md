@@ -6,6 +6,7 @@
 - Request and retain full-length X note text and entities, supporting both `note_tweet` and `note_post`. The pilot recovered 17 posts otherwise excluded because their previews lacked the term.
 - `usage` also reports the provider's credit balance when available. Balance readings and conservative local estimates remain distinct.
 - Avoid binary floating-point tails adding a micro-dollar to resource-cost settlements.
+- Daily report charts include partial first/last UTC days; a six-day interval starting at midday spans seven calendar dates.
 
 ## 0.3.0 (November 2026)
 

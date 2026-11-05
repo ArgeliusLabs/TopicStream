@@ -25,6 +25,12 @@ from topicstream.web import make_server
 from test_topicstream import x_search_page, NOW, mast_status, FakeHttp
 
 
+def setUpModule():
+    clock=patch('topicstream.xsource.utcnow',return_value=NOW)
+    clock.start()
+    unittest.addModuleCleanup(clock.stop)
+
+
 def row(account, day, minute=0, text=None, source='x'):
     p=Post(source,source,f'{account}-{day}-{minute}',iso(NOW-timedelta(days=7)+timedelta(days=day,minutes=minute)),
            account,text or f'Public water quality briefing day {day}; the full assessment and supporting source documents are available.',
@@ -147,13 +153,13 @@ class LedgerAndResumeTests(unittest.TestCase):
             x=X(ReplayHttp(page),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
             x.posts(['t'],[],NOW-timedelta(days=1),NOW)
             self.assertAlmostEqual(store.spent(),.01)
-            self.assertEqual(store.ledger()[0]['reserved_micros'],50000)
+            self.assertEqual(store.ledger()[0]['reserved_micros'],150000)
 
     def test_uncertain_search_retains_full_reservation(self):
         with Store(':memory:') as store:
             x=X(ReplayHttp(TimeoutError('network')),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10)
             with self.assertRaises(TimeoutError): x.posts(['t'],[],NOW-timedelta(days=1),NOW)
-            self.assertAlmostEqual(store.spent(),.05)
+            self.assertAlmostEqual(store.spent(),.15)
 
     def test_unpriced_expansions_are_rejected_before_http(self):
         http=ReplayHttp(); x=X(http,bearer='tok')
@@ -180,7 +186,7 @@ class LedgerAndResumeTests(unittest.TestCase):
             x=X(http,store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
             x.posts(['Election2026'],[],NOW-timedelta(days=1),NOW)
             self.assertEqual(len(store.ledger()),2); self.assertEqual(store.ledger()[0]['status'],'uncertain')
-            self.assertIn('post.fields=',http.calls[-1]); self.assertAlmostEqual(store.spent(),.055)
+            self.assertIn('post.fields=',http.calls[-1]); self.assertAlmostEqual(store.spent(),.155)
 
     def test_api_error_payload_never_exhausts_coverage(self):
         with Store(':memory:') as store:

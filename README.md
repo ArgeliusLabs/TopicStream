@@ -18,6 +18,8 @@ Choose the [CLI workflow](#cli-workflow) for exports, scripts, and repeatable re
 | Pilot cost inferred from reported account activity | About US$1.44 ($1.435 before cent rounding); not a separately verified debit |
 | Historical 0.3.1 local estimate | US$4.02 initially; US$7.98 with verification, overstating the reported billing behavior |
 
+**Upcoming X billing change:** an X notice supplied by the maintainer says expansions become billable from **November 22, 2026**. TopicStream 0.3.3 automatically includes author profiles at $0.010 per new user resource from that date and reserves for that cost in advance. The November 5 pilot remains a historical, pre-change example. See [pricing policy and source details](docs/x-costs.md).
+
 **No strong recurring coordination was detected in this sample at the default thresholds.** This is a worked investigation example, not evidence that the wider topic is free of CIB or a benchmark of detection accuracy. The public report contains aggregate results; individual posts and account evidence remain local. See the [technical pilot notes](docs/live-pilot-2026-11-05.md) for collection fixes and billing caveats. To explore supporting evidence for a detected group without credentials or charges, use the synthetic example below.
 
 ## Start the workspace
@@ -106,7 +108,7 @@ For reproducible CLI reports, set `start_utc` and `end_utc`. Otherwise, collecti
 
 Every X counts/search request reserves its maximum estimated cost before it is sent. A successful response settles against returned records. Interrupted or ambiguous calls retain the reservation. Completed X pages and their next token are saved in one transaction. Retry collection to resume a partial window; the newest observed ID never advances progress past uncollected pages.
 
-The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. The default estimate excludes author-expansion charges and deduplicates successfully returned IDs within a UTC day, database, and credential scope. Reservations remain conservative; before/after credit observations show account-wide movement separately. See [cost controls and reported measurements](docs/x-costs.md).
+The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. The default settlement estimate includes author-expansion charges from November 22, 2026, with full-page reservations covering them already. Successfully returned billable IDs are deduplicated within a UTC day, database, and credential scope. Before/after credit observations show account-wide movement separately. See [cost controls and reported measurements](docs/x-costs.md).
 
 Reports show rows in analysis versus all stored rows in the interval, headline activity triggers, and posting-hour comparisons against both the full stored interval and each available X query's hourly counts. Detailed pair and post evidence is collapsible, with working evidence links, a light theme, and expanded light-background printing. See [current synthetic report screenshots](docs/report-examples.md).
 

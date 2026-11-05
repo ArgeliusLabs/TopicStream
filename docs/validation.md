@@ -23,6 +23,8 @@ During implementation on Windows, automated checks and manual case creation, dem
 
 The 0.3.2 feedback regressions cover same-UTC-day deduplication across restarts, day rollover and midnight-crossing requests, credential isolation, conservative failure reservations, optional author charges, unchanged per-request counts charges, credit failures/top-ups/clipping, stored-row comparison populations, separate query-hour profiles, configured activity rules, and preserved collapsed evidence. The workspace report route allows only the known report script hash; post content remains escaped.
 
+The 0.3.3 pricing regressions use mocked clocks and responses to exercise the November 22 transition, a collector surviving the cutover, historical-post reads at current prices, legacy `false` configs, in-flight requests spanning the transition, repeated author IDs, next-day charges, and budget refusal before HTTP. Existing historical fixtures pin their pricing clock so CI remains stable after the change. These tests validate the estimator against the supplied notice, not the provider's future production billing implementation.
+
 Manual browser checks on the [synthetic report](report-examples.md) verified light/dark controls, 25 initially disclosed pair rows with all 210 retained, links opening event and nested post details, and a white-background print preview with expanded pair references. No console warnings or errors were reported. These checks make no paid API requests. The private classroom dataset was not available for a fresh run; its reported 21-of-22 result has not been independently remeasured. Detector defaults and their existing regression tests are unchanged.
 
 ## What these tests do not establish

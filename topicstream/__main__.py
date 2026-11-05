@@ -47,6 +47,7 @@ def collect(cfg, log=print):
                     for tag in tracked(cfg): store.record_coverage(src.name,'',tag,iso(since),iso(until),'unavailable','credentials missing',0,'search',iso(now))
                     continue
                 if src.name=='x':
+                    log('  '+src.pricing_note())
                     credit_started=True; credit_before=src.capture_credit(run_id,'before')
                     src.tag_days(cfg['tags'],now,since,cfg['terms'])
                     if xcfg.get('read_mode','always')!='on_alert': src.posts(cfg['tags'],cfg['terms'],since,now)
@@ -103,6 +104,7 @@ def buy_windows(cfg,store,wanted,log=print,dry=False):
         plan.append((label,start,expected))
     if not plan: log('No unfinished requested windows'); return 0
     estimate=sum(expected for _,_,expected in plan)*x.search_unit_price()
+    log(x.pricing_note())
     log(f'{len(plan)} window(s), estimated ${estimate:.4f}; requests also reserve their full page cost before reading')
     if dry or not x.available(): return 0
     run=store.start_run(iso(now)); total=0; errors=[]
@@ -204,6 +206,7 @@ def estimate(cfg,log=print):
     with Store(cfg['db']) as store:
         x=X(Http(pause=float(cfg.get('pause_seconds',1)),log=log),log,store=store,max_posts_per_tag=xcfg.get('max_posts_per_tag',200),budget_usd=xcfg.get('budget_usd',2),query_extra=xcfg.get('query_extra',''),archive=xcfg.get('archive',False),prices=xcfg.get('prices'))
         log(f'Configured price estimates: {x.prices}; verify against your provider account. Ledger reserved/spent: ${store.spent():.4f}')
+        log(x.pricing_note())
         log(f'Approximate capped run: ${x.estimate(cfg["tags"],cfg["terms"],int(cfg.get("days",7))):.4f}. Paid probes obey budget_usd.')
         if not x.available(): return
         now=utcnow(); since,until=collection_bounds(cfg,now); x.until=until

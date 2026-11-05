@@ -25,6 +25,12 @@ def stored_directory():
 
 NOW = datetime(2026, 11, 4, 20, 0, tzinfo=timezone.utc)
 
+def setUpModule():
+    clock=patch('topicstream.xsource.utcnow',return_value=NOW)
+    clock.start()
+    unittest.addModuleCleanup(clock.stop)
+
+
 def mast_status(i, acct, text, created, tags=(), card=None, reblog=False):
     s = dict(id=str(1000 + i), uri=f'https://ex.org/u/{acct}/{1000 + i}', url=f'https://ex.org/@{acct}/{1000 + i}', created_at=created, content=f'<p>{text}</p>',
              account=dict(id=str(i), acct=acct, created_at='2024-01-01T00:00:00.000Z', followers_count=10 + i), tags=[dict(name=t) for t in tags],

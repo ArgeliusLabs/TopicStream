@@ -37,7 +37,7 @@
         "user_read": 0.01,
         "counts_recent": 0.005,
         "counts_all": 0.01,
-        "bill_author_expansions": false
+        "bill_author_expansions": "auto"
       }
     }
   },

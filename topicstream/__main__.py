@@ -142,11 +142,12 @@ def _pick(r, *names):
         if r.get(n) not in (None, ''): return r[n]
     return None
 
-def import_csv(cfg, path, source, log=print, accounts=None):
+def import_csv(cfg, path, source, log=print, accounts=None, now=None):
     """Load a posts CSV with the Day 6 export columns (timestamp_utc, handle, text, link, content_type, likes, reposts, replies, lang,
     post_id, in_reply_to). With --accounts, a profiles CSV (handle, created_utc, followers, posts_total; a few aliases accepted) fills
-    account age, followers and lifetime posts, which the account signals and creation clusters need."""
-    store = Store(cfg['db']); now = iso(utcnow()); rows = []; prof = {}
+    account age, followers and lifetime posts, which the account signals and creation clusters need. `now` fixes the collected
+    time (and the run record) for reproducible builds."""
+    store = Store(cfg['db']); now = iso(now or utcnow()); rows = []; prof = {}; run_id = store.start_run(now)
     if accounts:
         with open(accounts, encoding='utf-8') as f:
             for r in csv.DictReader(f):
@@ -167,6 +168,7 @@ def import_csv(cfg, path, source, log=print, accounts=None):
                          author_created_utc=when(created) if created else None, author_followers=int(followers) if followers else None, author_posts=int(total) if total else None,
                          matched=matches(text, cfg['tags'], cfg['terms']), tags=tags_in(text), links=[link] if link else [], collected_utc=now))
     n = store.add_posts(rows); log(f'imported {len(rows)} rows, {n} new, from {path}')
+    store.finish_run(run_id, now, {'import': dict(file=Path(path).name, rows=len(rows), new=n, source=source, accounts=len(prof) if accounts else None)})
 
 def estimate(cfg, log=print):
     """What the configured X run would cost, worst case, and, with a token, the real 7-day volume of each tag from the counts endpoint

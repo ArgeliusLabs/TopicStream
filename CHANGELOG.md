@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.2 (November 2026)
+
+- `import-csv` records a run (file, rows, new, profiles joined) so the report's sources panel shows where imported posts came from; `import_csv(now=…)` for reproducible builds.
+
 ## 0.2.1 (November 2026)
 
 - `import-csv --accounts profiles.csv`: join account age, followers and lifetime posts from a profiles export, so the account signals and creation clusters work on imported data; `in_reply_to` is resolved to the replied account when it names a post in the same file.

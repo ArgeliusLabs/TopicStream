@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]   # ubuntu-latest became 26.04 on 23 November 2026 and setup-python has no 3.9 build for it yet
         python: ['3.9', '3.12']
     runs-on: ${{ matrix.os }}
     steps:

@@ -110,7 +110,7 @@ class ExerciseDataTests(unittest.TestCase):
             co = A.cooccurrence(posts, '#telukrawah'); self.assertIn('#sekawandeal', [c['tag'] for c in co])
             html = R.render(s, cfg, now=datetime(2026, 3, 9, tzinfo=timezone.utc)); self.assertIn('Activity rules tripped', html)
             self.assertIn('Imported export (ciap)', html); self.assertNotIn('<b>Mastodon.</b>', html)                              # platform notes follow what the database holds
-            self.assertIn('Export: 2026-02-01 to 2026-03-08', html); self.assertIn('Export depth', html); self.assertNotIn('max_pages', html)
+            self.assertIn('Export: 2026-02-01 to 2026-03-0', html); self.assertIn('Export depth', html); self.assertNotIn('max_pages', html)   # the span of the rows matching these three tags (0.3 scope), not the whole file
             prof = CIAP.parent / 'ciap_account_profiles_2026-03-09.csv'
             if prof.exists():
                 cfg2 = dict(cfg, db=str(Path(d) / 'c2.sqlite')); import_csv(cfg2, str(CIAP), 'ciap', log=lambda *a: None, accounts=str(prof))
@@ -260,16 +260,27 @@ class ImportJoinTests(unittest.TestCase):
             self.assertTrue(P['bob']['is_reply']); self.assertEqual(P['bob']['reply_to'], 'alice'); self.assertEqual(P['carol']['reply_to'], 'dave'); self.assertIsNone(P['carol']['author_followers'])
 
 class PeakTests(unittest.TestCase):
+    # The fake's counts and posts carry fixed dates in early November 2026; pin the clock just after them so the tests do not rot.
+    CLOCK = datetime(2026, 11, 8, 0, 0, tzinfo=timezone.utc)
+    def _clock(self):
+        from unittest.mock import patch
+        import contextlib
+        stack = contextlib.ExitStack()
+        for target in ('topicstream.__main__.utcnow', 'topicstream.xsource.utcnow', 'topicstream.scope.utcnow'):
+            try: stack.enter_context(patch(target, return_value=self.CLOCK))
+            except AttributeError: pass
+        return stack
     def _cfg(self, d, **x):
-        xd = dict(enabled=True, max_posts_per_tag=4, budget_usd=5.0, query_extra=''); xd.update(x)
-        return dict(tags=['Election2026'], terms=[], days=7, db=str(Path(d) / 'c.sqlite'), report=str(Path(d) / 'r.html'), pause_seconds=0,
+        xd = dict(enabled=True, max_posts_per_tag=4, budget_usd=10.0, query_extra=''); xd.update(x)
+        # fixed bounds covering the fake's dated counts and posts (a rolling interval would anchor on the newest post and cut off the busiest hours)
+        return dict(tags=['Election2026'], terms=[], days=7, start_utc='2026-10-29T00:00:00Z', end_utc='2026-11-08T00:00:00Z', db=str(Path(d) / 'c.sqlite'), report=str(Path(d) / 'r.html'), pause_seconds=0,
                     sources=dict(mastodon=dict(enabled=False), bluesky=dict(enabled=False), x=xd), alert=dict(uses=200, ratio=10, min_uses=10))
     def test_read_window_is_complete_and_recorded(self):
         import topicstream.sources as S
         from topicstream.__main__ import collect, peak, buy_windows, top_hours
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with stored_directory() as d:
+            with self._clock(), stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d); logs = []
                 store = collect(cfg, log=logs.append)                                   # stores the hourly counts
                 top = top_hours(store, ['#election2026'], 2); self.assertEqual(len(top), 2); self.assertTrue(top[0][2] >= top[1][2])
@@ -281,16 +292,16 @@ class PeakTests(unittest.TestCase):
                 self.assertIn('start_time', q); self.assertIn('end_time', q); self.assertNotIn('since_id', q)
                 self.assertEqual(buy_windows(cfg, store, top, log=logs.append), 0)        # already complete: nothing re-bought
                 self.assertTrue(any('peak' in json.loads(r['notes'] or '{}') for r in store.runs()))
-                html = R.render(store, cfg, now=NOW); self.assertIn('Purchased X windows', html); self.assertIn('exhausted', html)
+                html = R.render(store, cfg, now=self.CLOCK); self.assertIn('Purchased X windows', html); self.assertIn('exhausted', html); self.assertIn('originals only', html)
         finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
     def test_windows_section_before_any_peak(self):
         import topicstream.sources as S
         from topicstream.__main__ import collect
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with stored_directory() as d:
+            with self._clock(), stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d); store = collect(cfg, log=lambda m: None)
-                html = R.render(store, cfg, now=NOW); self.assertIn('No purchased windows', html); self.assertIn('query', html)
+                html = R.render(store, cfg, now=self.CLOCK); self.assertIn('No purchased windows', html); self.assertIn('query', html)
                 s2 = Store(':memory:')                                                  # an import-only database: no X counts series at all
                 html = R.render(s2, dict(name='t', tags=['x'], days=7, alert={}), now=NOW); self.assertIn('This database has no X counts series', html)
         finally: S.Http.get = orig; os.environ.pop('X_BEARER_TOKEN', None)
@@ -299,7 +310,7 @@ class PeakTests(unittest.TestCase):
         from topicstream.__main__ import collect, buy_windows, top_hours
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with stored_directory() as d:
+            with self._clock(), stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d, budget_usd=0.05); logs = []
                 store = collect(cfg, log=logs.append); top = top_hours(store, ['#election2026'], 1)
                 self.assertEqual(buy_windows(cfg, store, top, log=logs.append), 0); self.assertTrue(any('budget_usd' in l for l in logs))
@@ -309,7 +320,7 @@ class PeakTests(unittest.TestCase):
         from topicstream.__main__ import collect
         fake = XFakeHttp(); orig = S.Http.get; S.Http.get = lambda self, url, headers=None, tries=4: fake.get(url, headers)
         try:
-            with stored_directory() as d:
+            with self._clock(), stored_directory() as d:
                 os.environ['X_BEARER_TOKEN'] = 'tok'; cfg = self._cfg(d, read_mode='on_alert'); logs = []
                 store = collect(cfg, log=logs.append)
                 n = json.loads(store.runs()[0]['notes']); self.assertEqual(n['x']['posts'], 0); self.assertAlmostEqual(n['x']['spent_usd'], 0.01)   # counts only

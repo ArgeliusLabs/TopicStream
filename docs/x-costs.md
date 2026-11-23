@@ -2,7 +2,18 @@
 
 `budget_usd` limits the accumulated local estimate in one database, including prior runs, pending reservations, and unresolved requests. It is not an account-wide cap or an authoritative provider invoice. Old ledger entries are retained unchanged when upgrading.
 
-## Pricing assumptions in 0.3.3
+## What changed in 0.3.4, and why
+
+Measured on 23 November 2026, the day after the announced change: three `peak` reads of 1,773, 677 and 595 posts (one topic, three hours, author expansion on every page) moved the account balance by $26.07, $9.77 and $7.97 while the ledger estimated $26.065, $9.775 and $7.965. The model held to the cent. The arithmetic of the first hour is 1,773 posts × $0.005 = $8.865 plus 1,720 profiles × $0.010 = $17.20: author profiles were two thirds of the bill, and the analyst looked at perhaps forty of the 1,720. The same run also showed that 2,911 of the 3,045 posts were reposts of 29 originals, each billed as a post plus an author.
+
+Two defaults follow from that, both overridable:
+
+- `author_profiles: "lazy"`: search pages are requested without `expansions=author_id` and cost the post rate; profiles are bought afterwards with one users lookup per 100 ids, only for the accounts the report shows, priced per profile returned, deduplicated per UTC day, bounded by `profile_cap`. `always` is the 0.3.3 behaviour; `never` buys none.
+- `reposts: "exclude"`: `peak` reads an hour's originals and replies (`-is:retweet`). The originals carry their own repost totals, so the report can still rank what was amplified; `amplifiers --post <id> --sample N` buys a bounded sample of the reposters' profiles when the cohort matters. `--reposts include` reads the whole hour.
+
+On the 23 November run those defaults would have cost about $0.67 for the three hours' originals and replies (134 posts), about $1.00 for 100 sampled reposters of the one post that mattered, and under $1 of profiles for the account table: roughly $7 with counts, against $43.85.
+
+## Pricing assumptions in 0.3.3 and 0.3.4
 
 Default rates are `post_read: 0.005`, `user_read: 0.010`, `counts_recent: 0.005`, and `counts_all: 0.010` USD, with **`bill_author_expansions: "auto"`**. Automatic settlement estimates omit author-expansion charges before November 22, 2026 and include them from that date. The policy is evaluated for each request, including in a running collector; the post's creation date and the case's historical dates do not determine its read price.
 
@@ -48,6 +59,7 @@ These are **operator-reported developer-console totals and request inventories**
 | --- | --- | --- | --- |
 | November 4 | 2,865 new posts; 13 archive counts; 10 recent counts; author expansions | `2865 × $0.005 + 13 × $0.010 + 10 × $0.005 = $14.505` | $14.51 |
 | November 5 | 820 archive posts plus 285 distinct haze posts; same-day reread of those 285; 2 recent counts; author expansions | `(820 + 285) × $0.005 + 2 × $0.005 = $5.535` | $5.53 |
+| November 23 | 3,045 posts in three complete hours with author expansions (0.3.3 defaults); 8 recent counts | `3045 × $0.005 + 2858 × $0.010 + 8 × $0.005 = $43.845` (ledger $43.855 with two rejected requests' reservations) | $43.85 |
 
 The November 4 arithmetic rounds to the reported total. The November 5 arithmetic is **$0.005 above** the stated console figure and would conventionally round half-up to $5.54. That small discrepancy remains unresolved; these numbers are not an exact reconciliation to the cent. Both inventories support omitting a separate expansion charge and applying same-day resource deduplication on this account. They do not demonstrate month-long free rereads or guarantee every account's pricing.
 

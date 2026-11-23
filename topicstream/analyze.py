@@ -397,3 +397,50 @@ def leading_edge(posts, window, minutes=10):
     t0 = _t(inside[0]); edge = [p for p in inside if _t(p) - t0 <= timedelta(minutes=minutes)]
     return dict(first=inside[0]['created_utc'], posts=len(inside), accounts=len({account_key(p) for p in inside}), edge_posts=len(edge), edge_accounts=sorted({account_key(p) for p in edge}),
                 edge_links=collections.Counter(domain_of(l) for p in edge for l in p['links'] if domain_of(l)).most_common(5), per_account=len(inside) / max(1, len({account_key(p) for p in inside})))
+
+
+def _cohort(profiles, at=None):
+    """Age, follower and lifetime-post profile of a set of accounts (dicts with created_utc / followers / posts_total), or None."""
+    known = [p for p in profiles if p.get('created_utc')]
+    if not known: return None
+    ref = at or datetime.now(timezone.utc)
+    ages = sorted((ref - parse_time(p['created_utc'])).days for p in known)
+    fol = sorted(int(p['followers']) for p in known if p.get('followers') is not None)
+    life = sorted(int(p['posts_total']) for p in known if p.get('posts_total') is not None)
+    return dict(known=len(known), median_age_days=ages[len(ages) // 2], under_30_days=sum(a < 30 for a in ages), under_30_share=sum(a < 30 for a in ages) / len(ages),
+                median_followers=fol[len(fol) // 2] if fol else None, zero_followers=sum(f == 0 for f in fol), median_lifetime_posts=life[len(life) // 2] if life else None)
+
+
+def amplified_originals(posts, amplifiers=None, top=15, min_reposts=2, max_event_accounts=None):
+    """The posts that were reposted most, from two directions: originals in scope ranked by their own repost count (which the
+    platform returns with the post, whether or not any repost was collected), and the originals behind the reposts that were
+    collected. For each: reposts captured in scope, the platform's total, the distinct reposting accounts, the hours they fall
+    in, and the age and follower profile of the reposters whose profiles are known (collected with the reposts, or sampled with
+    `amplifiers`). Reposts are matched to their original by referenced_post_id when the platform gave one, else by the text."""
+    amplifiers = amplifiers or {}
+    by_id = {}
+    def row(oid):
+        return by_id.setdefault(oid, dict(post_id=oid, author=None, text='', total=0, captured=0, accounts=set(), hours=set(), reposters=[], first=None, last=None, in_scope=False))
+    for p in posts:
+        if p.get('is_repost'):
+            m = re.match(r'RT @(\w+):\s*(.*)', p['text'], re.S)
+            oid = p.get('referenced_post_id') or ('text:' + ((m.group(1).lower() + ':' + m.group(2)[:80]) if m else p['text'][:100]))
+            r = row(str(oid)); r['captured'] += 1; r['accounts'].add(account_key(p)); r['hours'].add(p['created_utc'][:13])
+            r['total'] = max(r['total'], int(p.get('reposts') or 0))
+            if m and not r['author']: r['author'] = m.group(1)
+            if m and not r['text']: r['text'] = m.group(2)
+            r['reposters'].append(dict(created_utc=p.get('author_created_utc'), followers=p.get('author_followers'), posts_total=p.get('author_posts')))
+            r['first'] = min(r['first'] or p['created_utc'], p['created_utc']); r['last'] = max(r['last'] or p['created_utc'], p['created_utc'])
+        elif int(p.get('reposts') or 0) >= min_reposts:
+            r = row(str(p.get('post_id'))); r['in_scope'] = True; r['author'] = r['author'] or p['author']; r['text'] = r['text'] or p['text']
+            r['total'] = max(r['total'], int(p.get('reposts') or 0)); r['first'] = r['first'] or p['created_utc']
+    out = []
+    for oid, r in by_id.items():
+        if r['captured'] < 1 and r['total'] < min_reposts: continue
+        sampled = amplifiers.get(oid, [])
+        cohort = _cohort(r['reposters'] + sampled)
+        out.append(dict(post_id=oid, author=r['author'], text=r['text'][:160], total=r['total'], captured=r['captured'], accounts=len(r['accounts']), hours=len(r['hours']),
+                        first=r['first'], last=r['last'], sampled=len(sampled), cohort=cohort, in_scope=r['in_scope'],
+                        skipped_by_detector=bool(max_event_accounts) and len(r['accounts']) > max_event_accounts))
+    out.sort(key=lambda r: (-r['total'], -r['captured']))
+    return out[:top]

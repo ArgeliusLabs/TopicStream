@@ -1,7 +1,7 @@
 """TopicStream: local investigations into recurring coordinated public activity.
 
 Start the browser workspace: python -m topicstream serve
-CLI: collect / report / run / watch / import-csv / estimate / usage / discover / peak.
+CLI: collect / report / run / watch / import-csv / estimate / usage / discover / peak / profiles / amplifiers.
 Search coverage and behavior patterns do not establish inauthenticity.
 Credentials come from environment variables or a local .env file.
 """
@@ -81,31 +81,43 @@ def collect(cfg, log=print):
                 log(f'ALERT {alert["tag"]}: {"; ".join(alert["reasons"])}')
         if tripped and xcfg.get('read_mode')=='on_alert' and not cfg.get('_cancelled',lambda:False)():
             buy_windows(cfg,store,[(a['tag'],a['start'],a['uses']) for a in tripped],log)
+        elif xcfg.get('enabled',True) and xcfg.get('author_profiles','lazy')=='lazy' and not cfg.get('_cancelled',lambda:False)():
+            enrich_profiles(cfg,store,log)
     except BaseException:
         store.finish_run(run_id,iso(utcnow()),notes); store.close(); raise
     store.finish_run(run_id,iso(utcnow()),notes)
     return store
 
 
-def buy_windows(cfg,store,wanted,log=print,dry=False):
+def _x(cfg,store,log,http=None):
+    """An X client from the config, with the store's ledger and the two cost modes."""
+    xcfg=cfg.get('sources',{}).get('x',{})
+    return X(http or Http(pause=float(cfg.get('pause_seconds',1)),log=log),log,store=store,budget_usd=xcfg.get('budget_usd',2),
+             query_extra=xcfg.get('query_extra',''),archive=xcfg.get('archive',False),prices=xcfg.get('prices'),cancelled=cfg.get('_cancelled'),
+             author_profiles=xcfg.get('author_profiles','lazy'),reposts=xcfg.get('reposts','exclude'))
+
+def buy_windows(cfg,store,wanted,log=print,dry=False,sample=None,reposts=None):
+    """Read the requested hours. By default an hour is read as its originals and replies (reposts='exclude', -is:retweet),
+    which is a fraction of the price and where the content is; reposts='include' reads everything, as 0.3.3 did. `sample`
+    caps a read at its first N posts and records it as a sample, not a complete window."""
     from .sources import queries
     xcfg=cfg.get('sources',{}).get('x',{}); now=utcnow()
-    x=X(Http(pause=float(cfg.get('pause_seconds',1)),log=log),log,store=store,budget_usd=xcfg.get('budget_usd',2),
-        query_extra=xcfg.get('query_extra',''),archive=xcfg.get('archive',False),prices=xcfg.get('prices'),cancelled=cfg.get('_cancelled'))
+    x=_x(cfg,store,log)
+    if reposts: x.reposts=reposts
     by_label={label:(kind,raw) for label,kind,raw in queries(cfg['tags'],cfg['terms'])}
     plan=[]
     for label,start,expected in wanted:
         start=iso(parse_time(start))
         if label not in by_label or any(label==l and start==st for l,st,_ in plan): continue
-        kind,raw=by_label[label]; previous=x.archive
-        if now-parse_time(start)>=timedelta(days=7): x.archive=True
-        fingerprint=x.query_hash(raw,kind); x.archive=previous
-        if any(w['tag']==label and w['start_utc']==start and w['status']=='exhausted' and w['query_hash']==fingerprint for w in store.windows()): continue
+        kind,raw=by_label[label]
+        fingerprint=x.window_fingerprint(raw,kind,parse_time(start),now)
+        if not sample and any(w['tag']==label and w['start_utc']==start and w['status']=='exhausted' and w['query_hash']==fingerprint for w in store.windows()): continue
         plan.append((label,start,expected))
     if not plan: log('No unfinished requested windows'); return 0
-    estimate=sum(expected for _,_,expected in plan)*x.search_unit_price()
+    unit=x.search_unit_price(); posts_priced=sum(min(expected,sample) if sample else expected for _,_,expected in plan)
     log(x.pricing_note())
-    log(f'{len(plan)} window(s), estimated ${estimate:.4f}; requests also reserve their full page cost before reading')
+    mode=('originals and replies only (reposts excluded; the counts include reposts, so the read is usually a fraction of the estimate)' if x.reposts=='exclude' else 'every post, reposts included')
+    log(f'{len(plan)} window(s), {mode}'+(f', first {sample} posts of each' if sample else '')+f': at most ${posts_priced*unit:.4f} at ${unit:.4f} per post; requests also reserve their full page cost before reading')
     if dry or not x.available(): return 0
     run=store.start_run(iso(now)); total=0; errors=[]
     credit_before=x.capture_credit(run,'before')
@@ -113,21 +125,83 @@ def buy_windows(cfg,store,wanted,log=print,dry=False):
         for label,start,expected in plan:
             kind,raw=by_label[label]; t0=parse_time(start); t1=t0+timedelta(hours=1)
             try:
-                posts=x.read_window(raw,kind,t0,t1,cfg['tags'],cfg['terms'],now,expected,cap=int(xcfg.get('window_cap',5000)))
+                posts=x.read_window(raw,kind,t0,t1,cfg['tags'],cfg['terms'],now,expected,cap=int(xcfg.get('window_cap',5000)),sample=sample)
                 total+=len(posts)
             except (Exception,SystemExit) as exc:
                 errors.append(str(exc)); log(f'Window remains partial: {exc}')
             state=x.last_window
             if state:
-                prev=x.archive
-                if now-t0>=timedelta(days=7): x.archive=True
-                fingerprint=x.query_hash(raw,kind); x.archive=prev
-                store.add_window('x',label,start,iso(t1),expected,state.get('got',0),iso(now),state.get('status','partial'),state.get('stop_reason',''),state.get('next_token'),fingerprint)
+                fingerprint=x.window_fingerprint(raw,kind,t0,now)
+                reason=state.get('stop_reason','')+(' · originals only' if x.reposts=='exclude' else '')
+                store.add_window('x',label,start,iso(t1),expected,state.get('got',0),iso(now),state.get('status','partial'),reason,state.get('next_token'),fingerprint)
             if errors: break
+        if total and x.author_profiles=='lazy' and not errors: enrich_profiles(cfg,store,log,x=x)
     finally:
         x.finish_credit(run,credit_before)
-        store.finish_run(run,iso(utcnow()),{'x':{'windows':len(plan),'posts':total,'spent_usd':round(x.spent,6),'errors':errors},'peak':True})
+        store.finish_run(run,iso(utcnow()),{'x':{'windows':len(plan),'posts':total,'spent_usd':round(x.spent,6),'errors':errors,'reposts':x.reposts,'sample':sample},'peak':True})
     return total
+
+
+def accounts_to_profile(store,cfg,now=None):
+    """The X accounts a report would show without a profile: recurring-group members, accounts in text, link or similar-wording
+    matches, every account with enough posts for the account table, and the authors of the most reposted originals."""
+    from . import detection
+    from .scope import analysis_scope
+    now=now or utcnow(); posts,start,end=selected_posts(store,cfg,now)
+    xp=[p for p in posts if p['source']=='x']
+    if not xp: return []
+    bc=cfg.get('burst',{}); window=int(bc.get('window_minutes',10)); minimum=int(bc.get('minimum',3))
+    wanted=set()
+    by_key={}
+    for p in xp: by_key.setdefault(__import__('topicstream.identity',fromlist=['account_key']).account_key(p),p)
+    for b in A.bursts(xp,window,minimum)+A.link_bursts(xp,window,minimum)+A.paraphrase_bursts(xp[:2000],int(bc.get('paraphrase_window_minutes',60)),minimum,float(bc.get('paraphrase_threshold',.35))):
+        for a in b['accounts']:
+            if a in by_key: wanted.add(by_key[a]['author_id'])
+    coverage=[r for r in store.coverage() if r['label'] in set(labels(cfg))]
+    try:
+        result=detection.analyze(posts,coverage,cfg.get('detector'),analysis_scope(cfg,start,end))
+        for g in result['groups']:
+            for a in g['accounts']:
+                if a in by_key: wanted.add(by_key[a]['author_id'])
+    except Exception: pass
+    per=__import__('collections').Counter(p['author_id'] for p in xp)
+    wanted.update(a for a,n in per.items() if n>=int(cfg.get('accounts',{}).get('min_posts',3)))
+    for r in A.amplified_originals(xp,{},top=15):
+        if r['in_scope']:
+            hit=next((p for p in xp if p['post_id']==r['post_id']),None)
+            if hit: wanted.add(hit['author_id'])
+    return store.accounts_without_profile([w for w in wanted if w])
+
+
+def enrich_profiles(cfg,store,log=print,x=None,dry=False,cap=None):
+    """author_profiles=lazy: buy the profiles the report needs, up to x.profile_cap per run, priced before the request."""
+    xcfg=cfg.get('sources',{}).get('x',{}); x=x or _x(cfg,store,log)
+    if not x.available(): return 0
+    ids=accounts_to_profile(store,cfg)
+    limit=int(cap if cap is not None else xcfg.get('profile_cap',300)); ids=ids[:limit] if limit else ids
+    if not ids: log('  profiles: every account the report shows already has one'); return 0
+    log(f'  profiles: {len(ids)} account(s) the report shows have no profile; at most ${x.profile_price(len(ids)):.4f} at ${x.prices["user_read"]:.4f} each'+(f' (profile_cap {limit})' if limit and len(ids)>=limit else ''))
+    if dry: return 0
+    got=x.lookup_profiles(ids); n=store.apply_profiles(got,iso(utcnow()))
+    log(f'  profiles: {n} applied; ${x.spent:.4f} this run so far')
+    return n
+
+
+def amplifiers(cfg,post_id,sample=100,dry=False,log=print):
+    """Who reposted one post: a bounded, newest-first sample of the reposters' profiles, for the cohort line in the report."""
+    with Store(cfg['db']) as store:
+        x=_x(cfg,store,log)
+        if not x.available(): log('No X_BEARER_TOKEN.'); return 0
+        known=store.amplifiers().get(str(post_id),[])
+        log(f'amplifiers of {post_id}: up to {sample} profiles at ${x.prices["user_read"]:.4f} each, at most ${x.profile_price(sample):.4f}'+(f'; {len(known)} already sampled' if known else ''))
+        if dry: return 0
+        run=store.start_run(iso(utcnow())); before=x.capture_credit(run,'before')
+        try:
+            got=x.amplifiers(post_id,sample); store.add_amplifiers(post_id,got,sample,iso(utcnow()))
+            log(f'  {len(got)} reposter profile(s) stored for post {post_id}')
+        finally:
+            x.finish_credit(run,before); store.finish_run(run,iso(utcnow()),{'x':{'amplifiers':str(post_id),'sample':sample,'spent_usd':round(x.spent,6)}})
+    write_report(cfg,log); return len(got)
 
 
 def top_hours(store, labels, hours=1, at=None, cfg=None):
@@ -146,12 +220,12 @@ def top_hours(store, labels, hours=1, at=None, cfg=None):
         for c in sorted(rows, key=lambda c: -c['uses'])[:hours]: out.append((label, c['start_utc'], c['uses']))
     return out
 
-def peak(cfg, hours=1, at=None, label=None, dry=False, log=print):
+def peak(cfg, hours=1, at=None, label=None, dry=False, log=print, sample=None, reposts=None):
     """Read selected hours up to the budget/page cap; retain partial pagination state."""
     store = Store(cfg['db']); labels = [label] if label else tracked(cfg)
     wanted = top_hours(store, labels, hours, at, cfg)
     if not wanted: log('no counts stored for those terms yet: run collect first'); store.close(); return
-    try: n = buy_windows(cfg, store, wanted, log, dry)
+    try: n = buy_windows(cfg, store, wanted, log, dry, sample=sample, reposts=reposts)
     finally: store.close()
     if n: write_report(cfg, log)
 
@@ -204,7 +278,8 @@ def import_csv(cfg, path, source, log=print, accounts=None, now=None):
 def estimate(cfg,log=print):
     xcfg=cfg.get('sources',{}).get('x',{})
     with Store(cfg['db']) as store:
-        x=X(Http(pause=float(cfg.get('pause_seconds',1)),log=log),log,store=store,max_posts_per_tag=xcfg.get('max_posts_per_tag',200),budget_usd=xcfg.get('budget_usd',2),query_extra=xcfg.get('query_extra',''),archive=xcfg.get('archive',False),prices=xcfg.get('prices'))
+        x=X(Http(pause=float(cfg.get('pause_seconds',1)),log=log),log,store=store,max_posts_per_tag=xcfg.get('max_posts_per_tag',200),budget_usd=xcfg.get('budget_usd',2),query_extra=xcfg.get('query_extra',''),archive=xcfg.get('archive',False),prices=xcfg.get('prices'),
+            author_profiles=xcfg.get('author_profiles','lazy'),reposts=xcfg.get('reposts','exclude'))
         log(f'Configured price estimates: {x.prices}; verify against your provider account. Ledger reserved/spent: ${store.spent():.4f}')
         log(x.pricing_note())
         log(f'Approximate capped run: ${x.estimate(cfg["tags"],cfg["terms"],int(cfg.get("days",7))):.4f}. Paid probes obey budget_usd.')
@@ -254,12 +329,15 @@ def usage(cfg, log=print):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='topicstream', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', choices=['serve', 'collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak'])
+    ap.add_argument('command', choices=['serve', 'collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak', 'profiles', 'amplifiers'])
     ap.add_argument('path', nargs='?', help='CSV path for import-csv')
     ap.add_argument('--config', default='config.json'); ap.add_argument('--every', type=int, default=15, help='minutes between collections in watch mode')
     ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--accounts', help='import-csv: a profiles CSV (handle, created_utc, followers, posts_total) to fill account age, followers and lifetime posts'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
     ap.add_argument('--hours', type=int, default=1, help='peak: how many of the busiest hours per term to read with recorded coverage'); ap.add_argument('--at', help='peak: one specific hour, e.g. 2026-10-21T14:00')
-    ap.add_argument('--tag', help='peak: only this term (as the report labels it, e.g. #php2shell or php2shell)'); ap.add_argument('--dry-run', action='store_true', help='peak: show the plan and cost, buy nothing')
+    ap.add_argument('--tag', help='peak: only this term (as the report labels it, e.g. #php2shell or php2shell)'); ap.add_argument('--dry-run', action='store_true', help='peak, profiles, amplifiers: show the plan and cost, buy nothing')
+    ap.add_argument('--sample', type=int, help='peak: read only the first N posts of each hour (recorded as a sample); amplifiers: how many reposters to sample (default 100)')
+    ap.add_argument('--reposts', choices=['include', 'exclude'], help="peak: read every post of the hour, or only its originals and replies (-is:retweet; the default, from the config's x.reposts)")
+    ap.add_argument('--post', help='amplifiers: the id of the post whose reposters to sample')
     ap.add_argument('--data-dir', default='topicstream-cases', help='serve: folder for saved cases')
     ap.add_argument('--port', type=int, default=8765, help='serve: localhost port')
     a = ap.parse_args(argv)
@@ -271,7 +349,13 @@ def main(argv=None):
     elif a.command == 'estimate': estimate(cfg)
     elif a.command == 'usage': usage(cfg)
     elif a.command == 'discover': discover(cfg, a.add, path=a.config)
-    elif a.command == 'peak': peak(cfg, a.hours, a.at, a.tag, a.dry_run)
+    elif a.command == 'peak': peak(cfg, a.hours, a.at, a.tag, a.dry_run, sample=a.sample, reposts=a.reposts)
+    elif a.command == 'profiles':
+        with Store(cfg['db']) as store: enrich_profiles(cfg, store, dry=a.dry_run)
+        if not a.dry_run: write_report(cfg)
+    elif a.command == 'amplifiers':
+        if not a.post: sys.exit('amplifiers needs --post <id>')
+        amplifiers(cfg, a.post, a.sample or 100, a.dry_run)
     elif a.command == 'report': write_report(cfg)
     elif a.command == 'run': collect(cfg).close(); write_report(cfg)
     elif a.command == 'import-csv':

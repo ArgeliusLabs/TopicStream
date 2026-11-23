@@ -114,6 +114,16 @@ def _baseline(posts,settings,seed):
             'limitation':'Diagnostic only: breaks individual within-day schedules and cannot model every benign organizer. Not a p-value or CIB probability.'}
 
 
+CONTENT_FIELDS=('source','instance','post_id','created_utc','author','author_id','author_uri','text','lang','is_repost','is_reply',
+                'reply_to','reference_type','referenced_post_id','original_author','matched','tags','links')
+
+def dataset_hash(rows):
+    """The identity of the evidence: what was posted, by whom, when, saying what, linking where. Collection time, engagement
+    counts and bought profiles are provenance and context, not content, and stay out of it, so the same records imported twice
+    give the same hash, the same review binding and the same shuffle seed."""
+    return digest([{k:p.get(k) for k in CONTENT_FIELDS} for p in rows])
+
+
 def analyze(posts,coverage=(),config=None,scope=None):
     settings=dict(DEFAULTS); settings.update(config or {})
     for key in DEFAULTS:
@@ -122,7 +132,7 @@ def analyze(posts,coverage=(),config=None,scope=None):
     if settings['max_event_accounts']>200 or settings['max_posts']>50000 or settings['baseline_repeats']>20:
         raise ValueError('Detector limits exceed local safety bounds')
     rows=sorted(posts,key=lambda p:(p['created_utc'],post_key(p)))
-    dataset=digest(rows); truncated=len(rows)>settings['max_posts']; rows=rows[:settings['max_posts']]
+    dataset=dataset_hash(rows); truncated=len(rows)>settings['max_posts']; rows=rows[:settings['max_posts']]
     events,ignored=_events(rows,settings); edges=_edges(events,settings)
     event_map={e['id']:e for e in events}; groups=[]
     for members in _components(edges,settings['min_accounts']):

@@ -45,8 +45,13 @@ class X:
                  query_extra='', archive=False, spent_before=0.0, cursors=None, save_cursor=None,
                  sample_per_day=0, sample_windows_per_day=6, counts_every_minutes=60,
                  counts_fetched=None, save_counts_fetched=None, store=None, prices=None,
-                 cancelled=None, until=None, scope_key=''):
+                 cancelled=None, until=None, scope_key='', author_profiles='lazy', reposts='exclude'):
         self.http, self.log, self.store = http, log, store
+        if author_profiles not in ('always', 'lazy', 'never'): raise ValueError('author_profiles must be always, lazy or never')
+        if reposts not in ('include', 'exclude'): raise ValueError('reposts must be include or exclude')
+        # lazy: search pages carry no author expansion (half the price per post); profiles are looked up afterwards,
+        # only for the accounts a report shows. always: the 0.3.3 behaviour. never: no profile is ever bought.
+        self.author_profiles, self.reposts = author_profiles, reposts
         self.max_posts, self.budget = int(max_posts_per_tag), float(budget_usd)
         self.bearer = bearer or os.environ.get('X_BEARER_TOKEN')
         self.query_extra, self.archive = query_extra.strip(), bool(archive)
@@ -82,7 +87,15 @@ class X:
         return digest({'query': self.query(raw, kind), 'archive': self.archive})
 
     def _ep(self, kind):
+        if kind == 'users': return 'https://api.x.com/2/users'
         return 'https://api.x.com/2/tweets/' + (('search/all' if self.archive else 'search/recent') if kind == 'search' else ('counts/all' if self.archive else 'counts/recent'))
+
+    MIN_END_LAG = timedelta(seconds=30)   # X refuses an end_time less than ten seconds before the request; keep well clear of it
+
+    def _end_param(self, until):
+        """An end bound the provider accepts: never later than thirty seconds before the request is made."""
+        latest = utcnow() - self.MIN_END_LAG
+        return min(until, latest) if until else latest
 
     def count_price(self): return self.prices['counts_all' if self.archive else 'counts_recent']
 
@@ -92,14 +105,22 @@ class X:
         return self.prices['bill_author_expansions'] is True or (at or utcnow()) >= self.AUTHOR_EXPANSIONS_BILL_FROM
 
     def pricing_note(self):
+        if self.author_profiles != 'always':
+            how = 'looked up afterwards, only for the accounts the report shows' if self.author_profiles == 'lazy' else 'never bought'
+            return (f'Author profiles are {how} (author_profiles={self.author_profiles}); search pages are priced at '
+                    f'${self.prices["post_read"]:.4f} per post and profiles at ${self.prices["user_read"]:.4f} each, once per profile per UTC day.')
         mode='included' if self.bills_author_expansions() else 'not yet included'
         return (f'Author-profile charge is {mode} in settlements; ${self.prices["user_read"]:.4f} per new user resource '
                 'from 2026-11-22 (UTC estimator convention). Full-page reservations already allow this charge; '
                 'daily deduplication and provider billing limits still apply.')
 
     def search_unit_price(self, at=None):
-        # Our only expansion is author_id: at most one user resource per post.
-        return self.prices['post_read'] + (self.prices['user_read'] if self.bills_author_expansions(at) else 0)
+        # Our only expansion is author_id: at most one user resource per post, and only when profiles ride with the page.
+        return self.prices['post_read'] + (self.prices['user_read'] if self.author_profiles == 'always' and self.bills_author_expansions(at) else 0)
+
+    def profile_price(self, n):
+        """A users lookup is priced per profile returned; reserve for every id asked for."""
+        return float(n * Decimal(str(self.prices['user_read'])))
 
     def resource_cost(self, posts, users=0, at=None, reserve=False):
         # Decimal multiplication avoids a binary-float tail becoming an extra
@@ -136,13 +157,16 @@ class X:
     def _get(self, url, q):
         if self.cancelled(): raise CollectionCancelled('Collection cancelled; completed pages are saved')
         counted = '/counts/' in url
-        paid = counted or '/search/' in url
+        users_call = url.endswith('/users') or url.endswith('/retweeted_by')
+        paid = counted or '/search/' in url or users_call
         expansions = set(q.get('expansions', '').split(',')) - {''}
         if paid and not counted and expansions - {'author_id'}:
             raise ValueError('Unpriced search expansion; only author_id is supported')
         limit = int(q.get('max_results', 0))
         started = utcnow()
-        price = self.count_price() if counted else self.resource_cost(limit, limit if 'author_id' in expansions else 0, at=started, reserve=True)
+        if counted: price = self.count_price()
+        elif users_call: price = self.profile_price(len(q['ids'].split(',')) if q.get('ids') else limit)
+        else: price = self.resource_cost(limit, limit if 'author_id' in expansions else 0, at=started, reserve=True)
         reservation = None
         if paid:
             if self.store:
@@ -157,9 +181,10 @@ class X:
             if paid:
                 self.spent += price
                 if reservation: self.store.uncertain_request(reservation, type(exc).__name__, iso(utcnow()))
-            if isinstance(exc,urllib.error.HTTPError) and exc.code==400 and 'tweet.fields' in q:
+            if isinstance(exc,urllib.error.HTTPError) and 400<=exc.code<500:
                 body=exc.read().decode('utf-8','replace')[:1000]
-                if 'fields' in body:
+                self.log('  x: HTTP '+str(exc.code)+': '+self._error_text(body))
+                if exc.code==400 and 'tweet.fields' in q and 'fields' in body:
                     self.fields_param='post.fields'
                     retry=dict(q); retry['post.fields']=retry.pop('tweet.fields').replace('referenced_tweets','referenced_posts').replace('note_tweet','note_post')
                     # Compatibility retry is a separate, fully reserved request.
@@ -170,6 +195,11 @@ class X:
             if counted:
                 actual = self.count_price()
                 if reservation: self.store.settle_request(reservation, actual, iso(finished))
+            elif users_call:
+                day = iso(started)[:10] if started.date() == finished.date() else None
+                resources = [('user', u.get('id'), self.prices['user_read']) for u in result[0].get('data', [])]
+                if reservation: actual = self.store.settle_resources(reservation, self._credential_scope, day, resources, iso(finished))
+                else: actual = self.profile_price(len(resources))
             else:
                 day = iso(started)[:10] if started.date() == finished.date() else None
                 resources = [('post', p.get('id'), self.prices['post_read']) for p in result[0].get('data', [])]
@@ -189,11 +219,22 @@ class X:
         self.spent += actual
         return result
 
+    @staticmethod
+    def _error_text(body):
+        """The provider's own words for a 4xx, for the log; never the request's credentials."""
+        try:
+            import json as _json
+            j = _json.loads(body)
+            parts = [j.get('detail') or j.get('title') or ''] + [e.get('message', '') for e in j.get('errors', []) if isinstance(e, dict)]
+            return ' '.join(p for p in parts if p)[:300] or body[:300]
+        except Exception:
+            return body[:300]
+
     def _counts(self, raw, granularity, since, kind='tag'):
         rows, token, seen = [], None, set()
         while True:
             q = {'query': self.query(raw, kind), 'granularity': granularity, 'start_time': iso(since)}
-            if self.until: q['end_time'] = iso(self.until)
+            if self.until: q['end_time'] = iso(self._end_param(self.until))
             if token: q['next_token'] = token
             data, _ = self._get(self._ep('counts'), q)
             if data.get('errors'): raise RuntimeError('Counts API reported errors; query remains incomplete')
@@ -239,7 +280,7 @@ class X:
         self.coverage_rows.append(args)
         if self.store: self.store.record_coverage(*args)
 
-    def _page_window(self, raw, kind, start, end, tags, terms, now, cap, key, label, incremental=False):
+    def _page_window(self, raw, kind, start, end, tags, terms, now, cap, key, label, incremental=False, sampling='bounded search'):
         if cap<1: raise ValueError('Window cap must be positive')
         state = self._state(key)
         if not state or (state.get('status') == 'exhausted' and incremental):
@@ -253,7 +294,8 @@ class X:
                 # API minimum is ten. Budget reserves all ten even if the soft cap is lower.
                 limit = max(10,min(500 if self.archive else 100,cap-len(out)))
                 q = {'query':self.query(raw,kind),'max_results':limit,'start_time':state['start'],'end_time':state['end'],
-                     self.fields_param:self.FIELDS.replace('referenced_tweets','referenced_posts').replace('note_tweet','note_post') if self.fields_param=='post.fields' else self.FIELDS,'expansions':'author_id','user.fields':'created_at,public_metrics,username'}
+                     self.fields_param:self.FIELDS.replace('referenced_tweets','referenced_posts').replace('note_tweet','note_post') if self.fields_param=='post.fields' else self.FIELDS}
+                if self.author_profiles == 'always': q.update({'expansions':'author_id','user.fields':'created_at,public_metrics,username'})
                 if state.get('next_token'): q['next_token'] = state['next_token']
                 j,_ = self._get(self._ep('search'),q)
                 if j.get('errors'): raise RuntimeError('Search API reported partial errors; interval remains incomplete')
@@ -275,10 +317,11 @@ class X:
         except BaseException as exc:
             state.update(status='partial',stop_reason=type(exc).__name__)
             self._persist(key,state,[])
-            self._coverage(key,label,state,now)
+            self._coverage(key,label,state,now,sampling)
             self.last_window=dict(state)
             raise
-        self._coverage(key,label,state,now)
+        if state.get('status')=='partial' and len(out)>=cap and sampling!='bounded search': state['stop_reason']=f'sample of {cap} reached'
+        self._coverage(key,label,state,now,sampling)
         self.last_window=dict(state)
         return out
 
@@ -317,16 +360,58 @@ class X:
                 out.extend(page); got+=len(page); start=end
         return out
 
-    def read_window(self,raw,kind,start,end,tags,terms,now,expected=None,cap=5000):
-        previous=self.archive
+    def read_window(self,raw,kind,start,end,tags,terms,now,expected=None,cap=5000,sample=None):
+        """One hour (or any interval) read complete, or, with `sample`, its first N posts. With reposts='exclude' the query
+        carries -is:retweet and the window is recorded under that query's own fingerprint: the originals and replies of the
+        hour, which is where the text, the links and the authors are; the originals' own repost counts come back with them."""
+        previous=self.archive; extra=self.query_extra
         if now-start>=timedelta(days=7): self.archive=True
+        if self.reposts=='exclude' and '-is:retweet' not in extra: self.query_extra=(extra+' -is:retweet').strip()
         try:
             key=digest([self.query_hash(raw,kind),'window',iso(start),iso(end)])
-            posts=self._page_window(raw,kind,start,end,tags,terms,now,cap,key,('#'+raw.lower()) if kind=='tag' else raw.lower())
-            self.last_window['query_hash']=self.query_hash(raw,kind)
-            self.log(f'  x window {iso(start)}: {len(posts)} posts this pass; {self.last_window["status"]}')
+            sampling=('originals only' if self.reposts=='exclude' else 'bounded search')+(f', first {sample} (sample)' if sample else '')
+            posts=self._page_window(raw,kind,start,end,tags,terms,now,min(cap,sample) if sample else cap,key,('#'+raw.lower()) if kind=='tag' else raw.lower(),sampling=sampling)
+            self.last_window['query_hash']=self.query_hash(raw,kind); self.last_window['reposts']=self.reposts
+            self.log(f'  x window {iso(start)}: {len(posts)} posts this pass; {self.last_window["status"]}'+(' (originals and replies only)' if self.reposts=='exclude' else ''))
             return posts
-        finally: self.archive=previous
+        finally: self.archive=previous; self.query_extra=extra
+
+    def window_fingerprint(self,raw,kind,start,now):
+        """The query hash a window read of `start` is recorded under: archive search for hours older than seven days, and the
+        -is:retweet variant when reposts are excluded. buy_windows uses it to see what is already complete."""
+        previous=self.archive; extra=self.query_extra
+        if now-start>=timedelta(days=7): self.archive=True
+        if self.reposts=='exclude' and '-is:retweet' not in extra: self.query_extra=(extra+' -is:retweet').strip()
+        try: return self.query_hash(raw,kind)
+        finally: self.archive=previous; self.query_extra=extra
+
+    def lookup_profiles(self,ids):
+        """Profiles for up to 100 account ids per request, priced per profile returned and deduplicated per UTC day."""
+        out=[]; ids=[i for i in dict.fromkeys(str(i) for i in ids if i)]
+        for i in range(0,len(ids),100):
+            batch=ids[i:i+100]
+            j,_=self._get(self._ep('users'),{'ids':','.join(batch),'user.fields':'created_at,public_metrics,username'})
+            out.extend(self._profile(u) for u in j.get('data',[]))
+        return out
+
+    def amplifiers(self,post_id,sample=100):
+        """A bounded sample of the accounts that reposted one post, newest first as the provider returns them. Each is a
+        profile read. Pagination continues only up to `sample`; the original's own repost count says how many there are."""
+        out=[]; token=None; post_id=str(post_id)
+        while len(out)<sample:
+            q={'max_results':max(1,min(100,sample-len(out))),'user.fields':'created_at,public_metrics,username'}
+            if token: q['pagination_token']=token
+            j,_=self._get(f'https://api.x.com/2/tweets/{post_id}/retweeted_by',q)
+            page=[self._profile(u) for u in j.get('data',[])]; out.extend(page)
+            token=j.get('meta',{}).get('next_token')
+            if not token or not page: break
+        return out[:sample]
+
+    @staticmethod
+    def _profile(u):
+        pm=u.get('public_metrics') or {}
+        return dict(author_id=u.get('id'),handle=u.get('username'),created_utc=iso(parse_time(u['created_at'])) if u.get('created_at') else None,
+                    followers=pm.get('followers_count'),posts_total=pm.get('post_count',pm.get('tweet_count')))
 
     def _parse(self,j,tags,terms,now):
         users={u['id']:u for u in j.get('includes',{}).get('users',[])}; out=[]

@@ -143,21 +143,21 @@ class LedgerAndResumeTests(unittest.TestCase):
     def test_author_expansion_budget_is_checked_before_http(self):
         with Store(':memory:') as store:
             http=ReplayHttp()
-            x=X(http,store=store,bearer='tok',budget_usd=.10,max_posts_per_tag=10,prices={'bill_author_expansions':True})
+            x=X(http,store=store,bearer='tok',budget_usd=.10,max_posts_per_tag=10,prices={'bill_author_expansions':True},author_profiles='always')
             with self.assertRaises(BudgetExceeded): x.posts(['t'],[],NOW-timedelta(days=1),NOW)
             self.assertEqual(http.calls,[]); self.assertEqual(store.spent(),0)
 
     def test_search_defaults_to_post_reads_without_author_expansion_charge(self):
         page=x_search_page([1,4])  # Two posts by one author, one expanded profile.
         with Store(':memory:') as store:
-            x=X(ReplayHttp(page),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
+            x=X(ReplayHttp(page),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None,author_profiles='always')
             x.posts(['t'],[],NOW-timedelta(days=1),NOW)
             self.assertAlmostEqual(store.spent(),.01)
             self.assertEqual(store.ledger()[0]['reserved_micros'],150000)
 
     def test_uncertain_search_retains_full_reservation(self):
         with Store(':memory:') as store:
-            x=X(ReplayHttp(TimeoutError('network')),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10)
+            x=X(ReplayHttp(TimeoutError('network')),store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,author_profiles='always')
             with self.assertRaises(TimeoutError): x.posts(['t'],[],NOW-timedelta(days=1),NOW)
             self.assertAlmostEqual(store.spent(),.15)
 
@@ -183,7 +183,7 @@ class LedgerAndResumeTests(unittest.TestCase):
         error=urllib.error.HTTPError('https://api.x.com',400,'Bad Request',{},io.BytesIO(b'Use post.fields'))
         with Store(':memory:') as store:
             http=ReplayHttp(error,x_search_page([1]))
-            x=X(http,store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None)
+            x=X(http,store=store,bearer='tok',budget_usd=1,max_posts_per_tag=10,log=lambda *a:None,author_profiles='always')
             x.posts(['Election2026'],[],NOW-timedelta(days=1),NOW)
             self.assertEqual(len(store.ledger()),2); self.assertEqual(store.ledger()[0]['status'],'uncertain')
             self.assertIn('post.fields=',http.calls[-1]); self.assertAlmostEqual(store.spent(),.155)

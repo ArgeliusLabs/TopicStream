@@ -98,9 +98,13 @@ python -m topicstream import-csv examples/synthetic-posts.csv --config config.js
 python -m topicstream import-csv posts.csv --accounts profiles.csv --config config.json
 python -m topicstream discover --config config.json
 python -m topicstream peak --config config.json --hours 1 --dry-run
+python -m topicstream peak --config config.json --tag komdigi --at 2026-11-18T13:00
+python -m topicstream peak --config config.json --tag komdigi --at 2026-11-18T13:00 --reposts include
+python -m topicstream profiles --config config.json --dry-run
+python -m topicstream amplifiers --config config.json --post 1990000000000000000 --sample 100
 ```
 
-`collect` collects without writing a report; `run` does both. `peak` attempts selected one-hour reads, keeping partial status until pagination ends. `estimate` may make paid counts requests when X credentials are present, guarded by the same budget. `usage` prints provider meter fields separately from the local ledger. `discover --add N` edits the config; automatic discovery is off in the examples.
+`collect` collects without writing a report; `run` does both. `peak` reads selected one-hour windows complete, keeping partial status until pagination ends; by default it reads the hour's originals and replies (`-is:retweet`), which is where the text, links and authors are, at a fraction of the price, and `--reposts include` reads everything. `profiles` buys the author profiles the report needs (see the cost section below); `amplifiers` samples who reposted one post. `estimate` may make paid counts requests when X credentials are present, guarded by the same budget. `usage` prints provider meter fields separately from the local ledger. `discover --add N` edits the config; automatic discovery is off in the examples.
 
 For reproducible CLI reports, set `start_utc` and `end_utc`. Otherwise, collection uses a rolling `days` interval, while a retrospective report anchors its interval to the newest stored post. Use a new database when deliberately widening a rolling investigation into older history. See [migration](docs/migration.md).
 
@@ -108,9 +112,11 @@ For reproducible CLI reports, set `start_utc` and `end_utc`. Otherwise, collecti
 
 Every X counts/search request reserves its maximum estimated cost before it is sent. A successful response settles against returned records. Interrupted or ambiguous calls retain the reservation. Completed X pages and their next token are saved in one transaction. Retry collection to resume a partial window; the newest observed ID never advances progress past uncollected pages.
 
-The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. The default settlement estimate includes author-expansion charges from November 22, 2026, with full-page reservations covering them already. Successfully returned billable IDs are deduplicated within a UTC day, database, and credential scope. Before/after credit observations show account-wide movement separately. See [cost controls and reported measurements](docs/x-costs.md).
+The budget is **per database**, including other processes using that same database. Separate cases, tools, and applications have independent spending. It is not a provider-wide account cap or invoice guarantee. Successfully returned billable IDs are deduplicated within a UTC day, database, and credential scope. Before/after credit observations show account-wide movement separately. See [cost controls and reported measurements](docs/x-costs.md).
 
-Reports show rows in analysis versus all stored rows in the interval, headline activity triggers, and posting-hour comparisons against both the full stored interval and each available X query's hourly counts. Detailed pair and post evidence is collapsible, with working evidence links, a light theme, and expanded light-background printing. See [current synthetic report screenshots](docs/report-examples.md).
+Since November 22, 2026, X bills the author profile returned with a post at the user rate ($0.010) on top of the post ($0.005); measured on 23 November, that made profiles two thirds of a read. So search pages no longer carry the author expansion: `author_profiles` is `lazy` by default, and the profiles are bought afterwards, once per account per UTC day, only for the accounts the report shows (`profile_cap` bounds it). `always` restores the 0.3.3 behaviour; `never` buys none. `peak` likewise reads an hour's originals and replies unless told `--reposts include`. On the 23 November run those two defaults would have turned $43.85 into about $7 for the same findings.
+
+Reports show rows in analysis versus all stored rows in the interval, headline activity triggers, the most amplified originals with their reposters' age and follower profile, and posting-hour comparisons against both the full stored interval and each available X query's hourly counts. Detailed pair and post evidence is collapsible, with working evidence links, a light theme, and expanded light-background printing. See [current synthetic report screenshots](docs/report-examples.md).
 
 ## Development and validation
 

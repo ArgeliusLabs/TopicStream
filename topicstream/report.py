@@ -101,7 +101,7 @@ def render(store,cfg,now=None,result=None):
     if result: posts=store.analysis_posts(result['run_id']) or posts
     stored_posts=store.posts(iso(start),iso(end))
     scope=analysis_scope(cfg,start,end)
-    hashes={q['query_hash'] for q in scope['expected_queries'] if q['source']=='x'}
+    hashes={q['query_hash'] for q in scope['expected_queries'] if q['source']=='x'}|{a for q in scope['expected_queries'] if q['source']=='x' for a in q.get('aliases',[])}
     counts=[r for r in store.counts() if in_scope(r,start,end,wanted) and r.get('query_hash') in hashes]
     windows=[r for r in store.windows() if in_scope(r,start,end,wanted) and r.get('query_hash') in hashes]
     coverage=[r for r in store.coverage() if r['label'] in wanted and parse_time(r['start_utc'])<end and parse_time(r['end_utc'])>=start]
@@ -116,7 +116,7 @@ def render(store,cfg,now=None,result=None):
     w(f'<h1>{esc(cfg.get("name","Topic investigation"))}</h1><p class="muted">{esc(iso(start))} to {esc(iso(end))} · UTC · end exclusive</p>')
     if import_only:
         w('<p class="muted">Export: '+esc(min(p['created_utc'] for p in posts)[:10])+' to '+esc(max(p['created_utc'] for p in posts)[:10])+' · observed rows within this report scope.</p><p>Export depth: posts are rows included in the export. Zero observed days do not establish that nobody posted. No platform-side counts in the export are assumed.</p>')
-    w('<nav><a href="#groups">Recurring groups</a><a href="#coverage">Coverage</a><a href="#activity">Activity</a><a href="#bursts">Matches</a><a href="#accounts">Accounts</a><a href="#evidence">Evidence</a></nav>')
+    w('<nav><a href="#groups">Recurring groups</a><a href="#amplified">Amplified</a><a href="#coverage">Coverage</a><a href="#activity">Activity</a><a href="#bursts">Matches</a><a href="#accounts">Accounts</a><a href="#evidence">Evidence</a></nav>')
     w(f'<div class="card"><h2>{esc(result["assessment"])}</h2><p>{esc(result["interpretation"])}</p><p class="muted">This report does not establish deceptive identity, common control, automation, or sponsorship.</p></div>')
     matching=sum(bool(wanted.intersection(p['matched'])) for p in stored_posts)
     w(f'<p><strong>{len(posts):,} of {len(stored_posts):,} stored rows in the interval are included in analysis.</strong> {matching:,} match the case tags or terms before language and exclusion filters. Rows outside the interval are not counted here.</p>')
@@ -138,6 +138,19 @@ def render(store,cfg,now=None,result=None):
     baseline=result['baseline']
     w(f'<div class="notice">Timing comparison: {result["recurring_edges"]} recurring edges observed; median {esc(baseline["median_edges"])} across {baseline["repeats"]} shuffled datasets. {esc(baseline["limitation"])}</div>')
     if any(result['limits'][k] for k in ('truncated_posts','high_volume_events_not_compared','missing_stable_id_accounts')): w('<p class="notice">Analysis limits: '+esc(json.dumps(result['limits']))+'</p>')
+    amplified=A.amplified_originals(posts,store.amplifiers() if hasattr(store,'amplifiers') else {},max_event_accounts=result['settings'].get('max_event_accounts'))
+    w('<h2 id="amplified">Amplified originals</h2><p>The posts in this interval that were reposted most: originals ranked by the repost count the platform returns with them, and the originals behind any reposts collected. A thousand accounts reposting one post inside an hour is coordination in the loose sense; the age and follower profile of the reposters is what separates a public from a purchase, and it needs their profiles (collected with the reposts, or sampled with <code>amplifiers</code>).</p>')
+    if amplified:
+        def cohort_cell(r):
+            c=r['cohort']
+            if not c: return 'no profiles yet'+(f' · {r["accounts"]} reposters captured' if r['accounts'] else '')
+            return (f'{c["known"]:,} profiles: median age {c["median_age_days"]:,} days, median followers {num(c["median_followers"])}, '
+                    f'{c["under_30_days"]} under 30 days ({c["under_30_share"]:.0%}), {c["zero_followers"]} with no followers'+(f' · {r["sampled"]} sampled' if r['sampled'] else ''))
+        w(_table(['Original','Platform reposts','Captured here','Reposting accounts','Hours','Reposter profile'],
+                 [(esc('@'+(r['author'] or 'unknown'))+': '+esc(r['text'][:110])+(' <span class="muted">(outside the detector\'s comparison limit)</span>' if r['skipped_by_detector'] else ''),num(r['total']),r['captured'],r['accounts'],r['hours'],cohort_cell(r)) for r in amplified]))
+    else: w('<p>No reposted originals in scope at these settings.</p>')
+    samples=store.amplifier_samples() if hasattr(store,'amplifier_samples') else []
+    if samples: w('<p class="muted small">Sampled reposters: '+esc('; '.join(f'post {s["post_id"]}: {s["returned"]} of {s["requested"]} asked ({s["fetched_utc"]})' for s in samples))+'. A sample is the provider\'s newest reposters first, not a random draw.</p>')
     if store.reviews():
         w('<h3>Analyst review history</h3>')
         w(_table(['Date','Group','Assessment','Explanation','Evidence version'],[(esc(r['created_utc']),esc(r['group_id']),esc(r['assessment']),esc(r['explanation']),esc(r['dataset_hash'][:12])+(' (current)' if r['dataset_hash']==result['dataset_hash'] else ' (older dataset)')) for r in store.reviews()]))
@@ -149,7 +162,10 @@ def render(store,cfg,now=None,result=None):
     if coverage: w(_table(['Source / query','Interval UTC','Status','Records','Method / stop reason'],[(esc(r['source']+' / '+r['label']),esc(r['start_utc']+' → '+r['end_utc']),esc(r['status']),r['retrieved'],esc(r['sampling']+' / '+r['stop_reason'])) for r in coverage]))
     else: w('<p class="notice">No collection-coverage records are available. Legacy and imported data cannot establish complete coverage.</p>')
     w('<h3>Purchased X windows</h3>')
-    if windows: w(_table(['Query','Hour UTC','Status','Counts said','Returned','Stop reason'],[(esc(r['tag']),esc(r['start_utc']),esc(r['status']),num(r['expected']),r['got'],esc(r['stop_reason'])) for r in windows]))
+    if windows:
+        w(_table(['Query','Hour UTC','Status','Counts said','Returned','Stop reason'],[(esc(r['tag']),esc(r['start_utc']),esc(r['status']),num(r['expected']),r['got'],esc(r['stop_reason'])) for r in windows]))
+        originals_only=[c for c in coverage if c.get('sampling','').startswith('originals')]
+        if originals_only: w('<p class="muted small">Windows read with reposts excluded (<code>-is:retweet</code>) return the originals and replies of the hour; "Counts said" still counts reposts, so the two columns differ by design.</p>')
     else: w('<p>No purchased windows. '+('This database has no X counts series.' if not counts else 'Use peak --dry-run to inspect a targeted read.')+'</p>')
     w('<h2 id="activity">Observed activity and alerts</h2>')
     w('<p><a href="#activity-alerts">View the first activity triggers above.</a></p>')
@@ -173,6 +189,10 @@ def render(store,cfg,now=None,result=None):
     burst_accounts={a for b in exact+links+near for a in b['accounts']}
     accounts=A.account_features(posts,now=now,burst_accounts=burst_accounts,min_posts=cfg.get('accounts',{}).get('min_posts',3),top=cfg.get('accounts',{}).get('top',40))
     w('<h2 id="accounts">Account observations</h2><p>Age is measured at first observed activity in this case. Low lifetime activity does not establish dormancy. Hour concentration requires at least three observed days and does not establish location or working hours. Flag counts are not probabilities.</p>')
+    x_accounts={p['author_id'] for p in posts if p['source']=='x' and p.get('author_id')}
+    if x_accounts:
+        profiled={p['author_id'] for p in posts if p['source']=='x' and p.get('author_created_utc')}
+        if len(profiled)<len(x_accounts): w(f'<p class="muted">Author profiles are known for {len(profiled):,} of {len(x_accounts):,} X accounts in scope; the rest appear by numeric id and carry no age or audience signal. Profiles are bought separately (<code>author_profiles</code>), once per account per UTC day.</p>')
     w(_table(['Account','Posts','Observed signals','Age at event','Median likes'],[(esc(r['account']+' ('+r['source']+')'),r['posts'],esc(', '.join(r['signals'])),num(r['age_days']),num(r['median_likes'])) for r in accounts]))
     hours=A.hour_comparison(posts,{r['account_id'] for r in accounts if len(r['signals'])>=2},stored_posts)
     if hours:

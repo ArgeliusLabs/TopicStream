@@ -1,5 +1,19 @@
 # Changes
 
+## 0.3.4 (November 23, 2026)
+
+Cost and correctness changes from the first live run of 0.3.3 after X began billing author profiles (measured 23 November: three complete hours of one topic, 3,045 posts, $43.85 on the account against $43.855 in the ledger; two thirds of it author profiles).
+
+- Author profiles are no longer requested with every search page. `author_profiles` (`lazy` by default, `always` for the 0.3.3 behaviour, `never`) buys profiles afterwards, only for the accounts a report shows: recurring-group members, accounts in text, link or similar-wording matches, accounts with enough posts for the account table, authors of the most reposted originals. One users lookup per 100 ids, priced per profile returned, deduplicated per UTC day in the same ledger, capped by `profile_cap` (300). `profiles` runs it on demand; collection and `peak` run it at the end. Until a profile is bought an X account appears by its numeric id and carries no age or audience signal; the report says how many are known.
+- `peak` reads an hour's originals and replies by default (`reposts: "exclude"`, `-is:retweet`), which is where the text, the links and the authors are, at a fraction of the price of the hour; the originals' own repost counts come back with them. `--reposts include` reads everything as before. Such a window is recorded under the query's `-is:retweet` fingerprint and marked "originals only"; the counts still count reposts.
+- `amplifiers --post <id> --sample N`: a bounded, newest-first sample of the accounts that reposted one post (each a profile read), stored and used for the cohort line below.
+- Report: an "Amplified originals" section, the most reposted originals in scope with reposts captured, the platform's total, distinct reposting accounts, hours, and the reposters' age and follower profile from collected or sampled profiles; originals over the detector's comparison limit are marked. The posts behind "insufficient evidence" in a repost-dominated window are now on the first screen.
+- `peak --sample N` reads the first N posts of an hour and records the read as a sample, not a complete window.
+- Fixed: rolling-window `collect` and `run` sent `end_time` equal to the request time, which X rejects ("must be a minimum of 10 seconds prior to the request time"); every such live collection in 0.3.2 and 0.3.3 failed with a bare HTTP 400. The provider end bound is now clamped to thirty seconds before the request, and a 4xx response's own message is logged.
+- Fixed: windows read from the archive endpoint (hours older than seven days) were recorded under an archive fingerprint the report never expected and were missing from "Purchased X windows"; the scope now lists each query's fingerprint aliases (archive, recent, with and without `-is:retweet`), and completeness is still judged on the configured query alone.
+- The dataset hash is computed over content fields only (not collection time, engagement counts or bought profiles), so the same records imported twice give the same hash, the same review binding and the same shuffle median.
+- Tests pinned against the clock and the fixtures' dates (the suite had rotted past the 22 November transition); 112 tests.
+
 ## 0.3.3 (November 5, 2026)
 
 - Follow the X PPU notice supplied by the maintainer: expanded author objects become billable at the configured user-resource rate from November 22, 2026. Use request time, including for historical searches and collectors already running at the transition.

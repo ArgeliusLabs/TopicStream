@@ -15,7 +15,7 @@ class ExpansionPricingTests(unittest.TestCase):
 
     def test_long_lived_collector_reprices_when_request_date_changes(self):
         with Store(':memory:') as s:
-            x=X(ReplayHttp(x_search_page([1]),x_search_page([1])),store=s,bearer='test',budget_usd=1)
+            x=X(ReplayHttp(x_search_page([1]),x_search_page([1])),store=s,bearer='test',budget_usd=1,author_profiles='always')
             with patch('topicstream.xsource.utcnow',return_value=self.cutoff-timedelta(seconds=1)):
                 self.assertEqual(x.search_unit_price(),.005)
                 x._get(x._ep('search'),self.query)
@@ -29,13 +29,13 @@ class ExpansionPricingTests(unittest.TestCase):
     def test_legacy_false_cannot_disable_announced_user_charges(self):
         for mode in ('auto',False):
             with self.subTest(mode=mode), Store(':memory:') as s, patch('topicstream.xsource.utcnow',return_value=self.cutoff):
-                x=X(ReplayHttp(x_search_page([1,4])),store=s,bearer='test',budget_usd=1,prices={'bill_author_expansions':mode})
+                x=X(ReplayHttp(x_search_page([1,4])),store=s,bearer='test',budget_usd=1,author_profiles='always',prices={'bill_author_expansions':mode})
                 x._get(x._ep('search'),self.query)
                 self.assertEqual(s.spent(),.02)  # two posts, one author
 
     def test_pre_cutover_settlement_is_free_for_authors_but_reservation_covers_transition(self):
         with Store(':memory:') as s, patch('topicstream.xsource.utcnow',return_value=self.cutoff-timedelta(days=1)):
-            x=X(ReplayHttp(x_search_page([1,4])),store=s,bearer='test',budget_usd=1)
+            x=X(ReplayHttp(x_search_page([1,4])),store=s,bearer='test',budget_usd=1,author_profiles='always')
             x._get(x._ep('search'),self.query)
             self.assertEqual(s.spent(),.01)
             self.assertEqual(s.ledger()[0]['reserved_micros'],150000)
@@ -43,7 +43,7 @@ class ExpansionPricingTests(unittest.TestCase):
 
     def test_transition_spanning_request_settles_with_fully_reserved_user_charge(self):
         with Store(':memory:') as s:
-            x=X(ReplayHttp(x_search_page([1])),store=s,bearer='test',budget_usd=1)
+            x=X(ReplayHttp(x_search_page([1])),store=s,bearer='test',budget_usd=1,author_profiles='always')
             with patch('topicstream.xsource.utcnow',side_effect=[self.cutoff-timedelta(seconds=1),self.cutoff]):
                 x._get(x._ep('search'),self.query)
             self.assertEqual(s.spent(),.015)
@@ -51,7 +51,7 @@ class ExpansionPricingTests(unittest.TestCase):
 
     def test_user_deduplication_across_new_posts_and_next_day(self):
         with Store(':memory:') as s:
-            x=X(ReplayHttp(x_search_page([1]),x_search_page([4]),x_search_page([4])),store=s,bearer='test',budget_usd=1)
+            x=X(ReplayHttp(x_search_page([1]),x_search_page([4]),x_search_page([4])),store=s,bearer='test',budget_usd=1,author_profiles='always')
             with patch('topicstream.xsource.utcnow',return_value=self.cutoff):
                 x._get(x._ep('search'),dict(self.query,query='one'))
                 x._get(x._ep('search'),dict(self.query,query='two'))
@@ -62,7 +62,7 @@ class ExpansionPricingTests(unittest.TestCase):
     def test_budget_refusal_precedes_http_on_both_sides_of_transition(self):
         for when in (self.cutoff-timedelta(days=1),self.cutoff):
             with self.subTest(when=when), Store(':memory:') as s, patch('topicstream.xsource.utcnow',return_value=when):
-                http=ReplayHttp(); x=X(http,store=s,bearer='test',budget_usd=.10)
+                http=ReplayHttp(); x=X(http,store=s,bearer='test',budget_usd=.10,author_profiles='always')
                 with self.assertRaises(BudgetExceeded): x._get(x._ep('search'),self.query)
                 self.assertEqual(http.calls,[])
 

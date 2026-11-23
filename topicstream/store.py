@@ -105,6 +105,16 @@ CREATE TABLE IF NOT EXISTS monitor_alerts (
   source TEXT, tag TEXT, start_utc TEXT, minutes INTEGER, payload TEXT NOT NULL, created_utc TEXT NOT NULL,
   PRIMARY KEY(source, tag, start_utc, minutes)
 );
+CREATE TABLE IF NOT EXISTS profiles (                -- account profiles bought on their own (author_profiles: lazy), or sampled amplifiers
+  source TEXT, author_id TEXT, handle TEXT, created_utc TEXT, followers INTEGER, posts_total INTEGER, fetched_utc TEXT NOT NULL,
+  PRIMARY KEY(source, author_id)
+);
+CREATE TABLE IF NOT EXISTS amplifiers (              -- who reposted one post: a bounded sample from the provider, each a profile read
+  source TEXT, post_id TEXT, author_id TEXT, fetched_utc TEXT NOT NULL, PRIMARY KEY(source, post_id, author_id)
+);
+CREATE TABLE IF NOT EXISTS amplifier_samples (       -- one row per sampling run: how many were asked for, how many came back
+  source TEXT, post_id TEXT, fetched_utc TEXT, requested INTEGER NOT NULL, returned INTEGER NOT NULL, PRIMARY KEY(source, post_id, fetched_utc)
+);
 '''
 
 
@@ -307,3 +317,40 @@ class Store:
 
     def analysis_posts(self,run_id):
         return [json.loads(r['record']) for r in self.db.execute('SELECT record FROM analysis_posts WHERE run_id=? ORDER BY post_key',(run_id,))]
+
+    def apply_profiles(self, profiles, now, source='x'):
+        """Profiles bought on their own: remembered, and written onto every stored post by that account (handle, age, followers,
+        lifetime posts), so the account rules see them exactly as if they had ridden with the search page."""
+        n = 0
+        with self.db:
+            for u in profiles:
+                if not u.get('author_id'): continue
+                self.db.execute('INSERT OR REPLACE INTO profiles VALUES (?,?,?,?,?,?,?)', (source, str(u['author_id']), u.get('handle'), u.get('created_utc'), u.get('followers'), u.get('posts_total'), now))
+                self.db.execute('UPDATE posts SET author=COALESCE(?,author), author_created_utc=COALESCE(?,author_created_utc), author_followers=COALESCE(?,author_followers), author_posts=COALESCE(?,author_posts) WHERE source=? AND author_id=?',
+                                (u.get('handle'), u.get('created_utc'), u.get('followers'), u.get('posts_total'), source, str(u['author_id'])))
+                n += 1
+        return n
+
+    def profiles(self, source='x'): return {r['author_id']: dict(r) for r in self.db.execute('SELECT * FROM profiles WHERE source=?', (source,))}
+
+    def accounts_without_profile(self, ids, source='x'):
+        """Which of these account ids have no creation date on any stored post and no bought profile."""
+        have = set(self.profiles(source)) | {r['author_id'] for r in self.db.execute('SELECT DISTINCT author_id FROM posts WHERE source=? AND author_created_utc IS NOT NULL AND author_id IS NOT NULL', (source,))}
+        return [i for i in dict.fromkeys(str(i) for i in ids if i) if i not in have]
+
+    def add_amplifiers(self, post_id, profiles, requested, now, source='x'):
+        with self.db:
+            for u in profiles:
+                if u.get('author_id'): self.db.execute('INSERT OR IGNORE INTO amplifiers VALUES (?,?,?,?)', (source, str(post_id), str(u['author_id']), now))
+            self.db.execute('INSERT OR REPLACE INTO amplifier_samples VALUES (?,?,?,?,?)', (source, str(post_id), now, int(requested), len(profiles)))
+        self.apply_profiles(profiles, now, source)
+
+    def amplifiers(self, source='x'):
+        """Sampled reposters per post id, each with its profile."""
+        prof = self.profiles(source); out = {}
+        for r in self.db.execute('SELECT post_id, author_id FROM amplifiers WHERE source=?', (source,)):
+            out.setdefault(r['post_id'], []).append(prof.get(r['author_id'], dict(author_id=r['author_id'])))
+        return out
+
+    def amplifier_samples(self, source='x'):
+        return [dict(r) for r in self.db.execute('SELECT * FROM amplifier_samples WHERE source=? ORDER BY post_id, fetched_utc', (source,))]

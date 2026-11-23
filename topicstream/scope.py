@@ -54,10 +54,18 @@ def analysis_scope(cfg,start,end):
     xcfg=cfg.get('sources',{}).get('x',{})
     x=X(None,query_extra=xcfg.get('query_extra',''),archive=xcfg.get('archive',False))
     expected=[]
+    extra=xcfg.get('query_extra','')
+    # The same query is recorded under other fingerprints when a window is read from the archive endpoint (hours older than
+    # seven days) or with reposts excluded (peak's default). Those are aliases of the expected query: their windows and coverage
+    # belong in the report, but completeness is judged on the configured query alone.
+    variants=[X(None,query_extra=e,archive=a) for e in dict.fromkeys([extra,(extra+' -is:retweet').strip()]) for a in (False,True)]
     for source,settings in cfg.get('sources',{}).items():
         if not settings.get('enabled'): continue
         for label,kind,raw in queries(cfg.get('tags',[]),cfg.get('terms',[])):
-            expected.append({'source':source,'label':label,'query_hash':x.query_hash(raw,kind) if source=='x' else ''})
+            base=x.query_hash(raw,kind) if source=='x' else ''
+            entry={'source':source,'label':label,'query_hash':base}
+            if source=='x': entry['aliases']=sorted({v.query_hash(raw,kind) for v in variants}-{base})
+            expected.append(entry)
     return {'start_utc':iso(start),'end_utc':iso(end),'query_fingerprint':cfg.get('query_fingerprint'),
             'expected_queries':expected}
 
@@ -68,7 +76,7 @@ def complete_coverage(coverage,scope):
     start,end=parse_time(scope['start_utc']),parse_time(scope['end_utc'])
     for query in scope['expected_queries']:
         intervals=sorted((parse_time(c['start_utc']),parse_time(c['end_utc'])) for c in coverage
-                         if all(c.get(k)==v for k,v in query.items())
+                         if all(c.get(k)==query.get(k) for k in ('source','label','query_hash'))
                          and c.get('status')=='exhausted' and c.get('sampling')=='bounded search')
         cursor=start
         for a,b in intervals:

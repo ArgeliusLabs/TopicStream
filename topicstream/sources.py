@@ -212,7 +212,8 @@ def build_sources(cfg, http, log):
         out.append(X(http, log, x.get('max_posts_per_tag', 200), x.get('budget_usd', 2.0), query_extra=x.get('query_extra', ''), archive=bool(x.get('archive', False)),
                      spent_before=x.get('_spent_before', 0.0), cursors=x.get('_cursors'), save_cursor=x.get('_save_cursor'), sample_per_day=x.get('sample_per_day', 0), sample_windows_per_day=x.get('sample_windows_per_day', 6),
                      counts_every_minutes=x.get('counts_every_minutes', 60), counts_fetched=x.get('_counts_fetched'), save_counts_fetched=x.get('_save_counts_fetched'),
-                     store=x.get('_store'), prices=x.get('prices'), cancelled=cfg.get('_cancelled'), until=cfg.get('_until'), scope_key=cfg.get('_scope_key','')))
+                     store=x.get('_store'), prices=x.get('prices'), cancelled=cfg.get('_cancelled'), until=cfg.get('_until'), scope_key=cfg.get('_scope_key',''),
+                     author_profiles=x.get('author_profiles','lazy'), reposts=x.get('reposts','exclude')))
     return out
 
 def load_dotenv(paths):

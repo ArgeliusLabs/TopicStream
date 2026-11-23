@@ -32,6 +32,9 @@
       "archive": false,
       "counts_every_minutes": 60,
       "read_mode": "always",
+      "author_profiles": "lazy",
+      "reposts": "exclude",
+      "profile_cap": 300,
       "prices": {
         "post_read": 0.005,
         "user_read": 0.01,

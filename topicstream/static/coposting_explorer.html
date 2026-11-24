@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Co-posting explorer</title>
+<style>
+:root{--ink:#1c2430;--muted:#5b6676;--line:#d9dee5;--accent:#1f5fbf;--soft:#f4f6f9;--ok:#1f7a3f}
+*{box-sizing:border-box}body{margin:0;font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:#fff}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 20px 60px}h1{font-size:24px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;text-transform:uppercase;letter-spacing:.6px;color:#33415a}
+p{margin:6px 0}.lead{color:var(--muted);max-width:860px}.panel{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:14px 0;background:var(--soft)}
+.row{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end}label{display:block;font-size:12.5px;font-weight:600;color:#33415a}
+select,input[type=text],input[type=number]{font:inherit;padding:5px 7px;border:1px solid #b9c2cf;border-radius:6px;background:#fff;min-width:150px}
+input[type=range]{width:210px;vertical-align:middle}button{font:inherit;font-weight:600;padding:6px 12px;border:1px solid var(--accent);border-radius:6px;background:#fff;color:var(--accent);cursor:pointer}
+button:hover{background:#eaf1fb}#status{font-weight:600}#status.ok{color:var(--ok)}#status.bad{color:#a11}
+#summary{font-weight:700;margin:14px 0 4px;font-size:16px}.grid{display:grid;grid-template-columns:3fr 2fr;gap:18px}@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.tw{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:8px}table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{position:sticky;top:0;background:#eef1f5;text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+td{padding:6px 10px;border-bottom:1px solid #eef0f3;vertical-align:top}td:first-child{white-space:nowrap}td.n{text-align:right;font-variant-numeric:tabular-nums}code{background:#eef1f5;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.small{font-size:12.5px;color:var(--muted)}details{margin-top:18px}summary{cursor:pointer;font-weight:700}
+</style></head><body><div class="wrap">
+<h1>Co-posting explorer</h1>
+<p class="lead">Finds bursts: the same message, or the same link, posted by several different accounts inside a short window. Load a CSV of posts, say which columns are which, and move the sliders. The file is read by this page in your browser. Nothing is uploaded and the page works with no internet connection.</p>
+
+<div class="panel">
+<div class="row"><div><label for="file">1. Posts file (CSV)</label><input type="file" id="file" accept=".csv,text/csv,.tsv,.txt"></div><div id="status" class="small">No file loaded.</div></div>
+<div class="row" style="margin-top:12px">
+<div><label for="cTime">2. Time column</label><select id="cTime"></select></div>
+<div><label for="cAcct">Account column</label><select id="cAcct"></select></div>
+<div><label for="cText">Text column</label><select id="cText"></select></div>
+<div><label for="cLink">Link column (optional)</label><select id="cLink"></select></div>
+<div id="replyBox" style="display:none"><label><input type="checkbox" id="skipReplies" checked> Leave out replies (<code id="replyCol"></code> = reply)</label></div>
+</div></div>
+
+<div class="panel">
+<div class="row">
+<div><label for="win">3. Window: <b id="winV">10</b> minutes</label><input type="range" id="win" min="1" max="120" value="10"></div>
+<div><label for="min">Minimum accounts: <b id="minV">5</b></label><input type="range" id="min" min="2" max="25" value="5"></div>
+<div><label for="mode">Group by</label><select id="mode">
+<option value="text">text, hashtags removed</option><option value="exact">text, exactly as posted</option><option value="link">link, exactly as shared</option><option value="contains">any link containing… (no window)</option></select></div>
+<div id="needleBox" style="display:none"><label for="needle">Link contains</label><input type="text" id="needle" placeholder="utm_campaign=…"></div>
+</div>
+<p class="small" style="margin-top:8px">Too narrow a window loses the account that posts late; too wide pulls in people who copied the post at lunch. Too low a minimum makes every pair of friends a burst. There is no correct setting: change one, see who joins and who leaves, and look at those accounts.</p>
+</div>
+
+<div id="summary"></div>
+<div class="grid">
+<div><h2>Bursts</h2><div class="tw"><table id="bursts"><thead><tr><th>Start (UTC)</th><th>Accounts</th><th>Posts</th><th>Span</th><th>Message or link</th></tr></thead><tbody></tbody></table></div></div>
+<div><h2>Candidate accounts <button id="copy" type="button" style="margin-left:8px">Copy list</button> <button id="dl" type="button">Download CSV</button></h2><div class="tw"><table id="accts"><thead><tr><th>Account</th><th>Bursts</th><th>First (UTC)</th></tr></thead><tbody></tbody></table></div></div>
+</div>
+
+<details><summary>How it works, and what it does not tell you</summary>
+<p>Every post gets a key: its text with hashtags stripped, its exact text, or its link. Posts with the same key are sorted by time. Starting from each post in turn, the page collects every post with that key inside the window. If those posts come from at least the minimum number of different accounts, that is a burst, every account in it is a candidate, and the search continues after the burst. "Any link containing" is a different kind of rule: no window, just every account that ever shared a link with that string in it, which is how you follow a tracking token.</p>
+<p>A burst is a lead. People who see a post and paste it land in bursts, and a member who always posts an hour late never does. Treat the candidate list as a net: decide each account on what the account is (age, history, audience, what else it posts), and keep the people who merely agreed out of your findings. A group that posts on a published schedule is coordinated and may be entirely genuine.</p>
+<p>When you have a window and a minimum that suit your data, the same two numbers go into TopicStream's config as <code>burst.window_minutes</code> and <code>burst.minimum</code>. This page is part of TopicStream, which is free and open source under the MIT licence: <code>https://github.com/ArgeliusLabs/TopicStream</code>. From a copy of the repository, <code>python -m topicstream explorer</code> opens it. It is one file with no dependencies, so you can copy it to an offline machine by itself, and you may change it freely.</p>
+</details>
+<p class="small" style="margin-top:22px">Times are read as UTC unless the value carries its own offset. Accepted: <code>2026-02-03 02:47:12</code>, ISO 8601 (<code>2026-02-03T02:47:12Z</code>), and Unix seconds or milliseconds.</p>
+</div>
+<script>
+(function(){
+'use strict';
+var head=[],data=[],last={names:[],cand:{},first:{}};
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function status(m,ok){var s=$('status');s.textContent=m;s.className=ok?'ok':'bad';}
+function parseCSV(text,delim){var out=[],row=[],cur='',q=false;if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+  for(var i=0;i<text.length;i++){var c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){cur+='"';i++;}else q=false;}else cur+=c;}
+    else if(c==='"')q=true;else if(c===delim){row.push(cur);cur='';}
+    else if(c==='\n'){row.push(cur);out.push(row);row=[];cur='';}else if(c!=='\r')cur+=c;}
+  if(cur!==''||row.length){row.push(cur);out.push(row);}
+  return out.filter(function(r){return r.length>1||(r.length===1&&r[0]!=='');});}
+function parseTime(v){v=String(v).trim();if(!v)return NaN;
+  if(/^\d{10}$/.test(v))return +v*1000;if(/^\d{13}$/.test(v))return +v;
+  var s=v.replace(' ','T');if(!/(Z|[+-]\d\d:?\d\d)$/.test(s))s+='Z';return Date.parse(s);}
+function guess(names,pats){for(var p=0;p<pats.length;p++)for(var i=0;i<names.length;i++)if(pats[p].test(names[i]))return i;return -1;}
+function fill(id,sel,optional){var h=(optional?'<option value="-1">(none)</option>':'')+head.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('');$(id).innerHTML=h;$(id).value=String(sel);}
+function load(file){var r=new FileReader();r.onload=function(){var txt=String(r.result),first=txt.slice(0,txt.indexOf('\n')<0?txt.length:txt.indexOf('\n'));
+  var delim=(first.split('\t').length>first.split(',').length)?'\t':(first.split(';').length>first.split(',').length?';':',');
+  var t=parseCSV(txt,delim);if(t.length<2){status('That file has no rows.',false);return;}
+  head=t[0].map(function(x){return x.trim();});data=t.slice(1);var low=head.map(function(x){return x.toLowerCase();});
+  fill('cTime',Math.max(0,guess(low,[/^timestamp_utc$/,/^created_utc$/,/^created_at$/,/time/,/date/,/created/])));
+  fill('cAcct',Math.max(0,guess(low,[/^handle$/,/^username$/,/^screen_name$/,/^author$/,/handle|user|author|account/])));
+  fill('cText',Math.max(0,guess(low,[/^text$/,/^content$/,/^body$/,/^message$/,/text|content|body/])));
+  fill('cLink',guess(low,[/^link$/,/^url$/,/^urls$/,/^expanded_url$/,/link|url/]),true);
+  var rc=guess(low,[/^content_type$/,/^type$/,/^post_type$/]);
+  if(rc>=0&&data.some(function(r){return String(r[rc]).toLowerCase()==='reply';})){$('replyBox').style.display='';$('replyCol').textContent=head[rc];$('replyBox').dataset.col=rc;}else{$('replyBox').style.display='none';delete $('replyBox').dataset.col;}
+  status(data.length.toLocaleString()+' rows loaded from '+file.name+'. Check the four columns, then move the sliders.',true);run();};
+  r.readAsText(file);}
+function fmt(ms){return new Date(ms).toISOString().slice(0,16).replace('T',' ');}
+function span(ms){var s=Math.round(ms/1000);return s<60?s+' s':Math.round(s/60)+' min';}
+function run(){if(!data.length)return;
+  var win=+$('win').value*60000,min=+$('min').value,mode=$('mode').value,needle=$('needle').value.trim();
+  $('winV').textContent=$('win').value;$('minV').textContent=min;$('needleBox').style.display=mode==='contains'?'':'none';
+  var ct=+$('cTime').value,ca=+$('cAcct').value,cx=+$('cText').value,cl=+$('cLink').value;
+  var rc=$('replyBox').dataset.col,skip=rc!==undefined&&$('skipReplies').checked,bad=0,rows=[];
+  data.forEach(function(r){if(skip&&String(r[+rc]).toLowerCase()==='reply')return;var t=parseTime(r[ct]);if(isNaN(t)){bad++;return;}
+    rows.push({t:t,h:String(r[ca]||'').trim(),text:String(r[cx]||''),link:cl>=0?String(r[cl]||'').trim():''});});
+  var bursts=[],cand={},first={};
+  function seen(h,t){cand[h]=(cand[h]||0)+1;if(!(h in first)||t<first[h])first[h]=t;}
+  if(mode==='contains'){if(needle)rows.forEach(function(p){if(p.link.indexOf(needle)>=0)seen(p.h,p.t);});}
+  else{var groups={};rows.forEach(function(p){var k=mode==='text'?p.text.replace(/\s*#[\wÀ-￿]+/g,'').trim():mode==='exact'?p.text.trim():p.link;if(!k)return;(groups[k]=groups[k]||[]).push(p);});
+    Object.keys(groups).forEach(function(k){var g=groups[k].sort(function(a,b){return a.t-b.t;}),i=0;
+      while(i<g.length){var inside=[];for(var j=i;j<g.length&&g[j].t<=g[i].t+win;j++)inside.push(g[j]);
+        var acc={};inside.forEach(function(p){acc[p.h]=1;});var names=Object.keys(acc);
+        if(names.length>=min){bursts.push({t:g[i].t,n:names.length,posts:inside.length,span:inside[inside.length-1].t-g[i].t,k:k});names.forEach(function(h){seen(h,g[i].t);});i+=inside.length;}else i++;}});}
+  bursts.sort(function(a,b){return a.t-b.t;});
+  document.querySelector('#bursts tbody').innerHTML=bursts.map(function(b){return '<tr><td>'+fmt(b.t)+'</td><td class="n">'+b.n+'</td><td class="n">'+b.posts+'</td><td>'+span(b.span)+'</td><td>'+esc(b.k.slice(0,110))+(b.k.length>110?'…':'')+'</td></tr>';}).join('');
+  var names=Object.keys(cand).sort(function(a,b){return cand[b]-cand[a]||a.localeCompare(b);});
+  document.querySelector('#accts tbody').innerHTML=names.map(function(h){return '<tr><td><code>'+esc(h)+'</code></td><td class="n">'+cand[h]+'</td><td>'+fmt(first[h])+'</td></tr>';}).join('');
+  document.querySelector('#accts th:nth-child(2)').textContent=mode==='contains'?'Posts':'Bursts';
+  $('summary').textContent=mode==='contains'?(needle?names.length+' accounts shared a link containing "'+needle+'" (no window applies).':'Type the string to look for in the link.')
+    :bursts.length+' burst'+(bursts.length===1?'':'s')+', '+names.length+' candidate account'+(names.length===1?'':'s')+' at '+$('win').value+' minutes and a minimum of '+min+'.'+(bad?' ('+bad+' rows had a time this page could not read and were left out.)':'');
+  last={names:names,cand:cand,first:first};window._explorer={bursts:bursts.length,candidates:names.length,names:names};}
+$('file').addEventListener('change',function(e){if(e.target.files[0])load(e.target.files[0]);});
+['win','min','mode','needle','cTime','cAcct','cText','cLink','skipReplies'].forEach(function(id){$(id).addEventListener('input',run);$(id).addEventListener('change',run);});
+$('copy').addEventListener('click',function(){var t=last.names.join('\n');if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(t);else{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');}catch(e){}a.remove();}});
+$('dl').addEventListener('click',function(){var lines=['account,count,first_utc'].concat(last.names.map(function(h){return '"'+h.replace(/"/g,'""')+'",'+last.cand[h]+','+new Date(last.first[h]).toISOString();}));
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\r\n')],{type:'text/csv'}));a.download='coposting_candidates.csv';document.body.appendChild(a);a.click();a.remove();});
+})();
+</script></body></html>

@@ -1,5 +1,5 @@
 """Loopback-only local UI. This is not an internet-facing application server."""
-import json
+import json, re, base64, hashlib
 import os
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,7 +24,7 @@ def make_server(root,port=8765):
         def _allowed_host(self):
             return self.headers.get('Host','') in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}
 
-        def send(self,status,payload,kind='application/json',filename=None,report_script=False):
+        def send(self,status,payload,kind='application/json',filename=None,report_script=False,inline_hash=None):
             if kind=='application/json': payload=json.dumps(payload,ensure_ascii=False).encode('utf-8')
             elif isinstance(payload,str): payload=payload.encode('utf-8')
             self.send_response(status)
@@ -34,7 +34,7 @@ def make_server(root,port=8765):
             self.send_header('X-Content-Type-Options','nosniff')
             self.send_header('Referrer-Policy','no-referrer')
             from .report import SCRIPT_HASH
-            scripts="'self'" + (" '"+SCRIPT_HASH+"'" if report_script else '')
+            scripts="'self'" + (" '"+SCRIPT_HASH+"'" if report_script else '') + (" '"+inline_hash+"'" if inline_hash else '')
             self.send_header('Content-Security-Policy',"default-src 'self'; script-src "+scripts+"; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
             if filename: self.send_header('Content-Disposition',f'attachment; filename="{filename}"')
             self.end_headers(); self.wfile.write(payload)
@@ -47,6 +47,10 @@ def make_server(root,port=8765):
                     name={'/':'index.html','/app.js':'app.js','/app.css':'app.css'}[path]
                     kind={'/':'text/html','/app.js':'text/javascript','/app.css':'text/css'}[path]
                     self.send(200,(ASSETS/name).read_bytes(),kind); return
+                if path=='/explorer':
+                    # the co-posting explorer: one static page whose only script is inline, allowed by its hash and nothing wider
+                    page=(ASSETS/'coposting_explorer.html').read_bytes(); m=re.search(rb'<script>(.*?)</script>',page,re.S)
+                    self.send(200,page,'text/html',inline_hash='sha256-'+base64.b64encode(hashlib.sha256(m.group(1)).digest()).decode()); return
                 if path=='/api/session':
                     self.send(200,{'token':token,'credentials':{'x':bool(os.environ.get('X_BEARER_TOKEN')),'bluesky':bool(os.environ.get('BSKY_HANDLE') and os.environ.get('BSKY_APP_PASSWORD')),'mastodon':True}}); return
                 if path=='/api/cases': self.send(200,cases.list()); return

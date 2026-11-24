@@ -1,7 +1,7 @@
 """TopicStream: local investigations into recurring coordinated public activity.
 
 Start the browser workspace: python -m topicstream serve
-CLI: collect / report / run / watch / import-csv / estimate / usage / discover / peak / profiles / amplifiers.
+CLI: collect / report / run / watch / import-csv / estimate / usage / discover / peak / profiles / amplifiers / explorer.
 Search coverage and behavior patterns do not establish inauthenticity.
 Credentials come from environment variables or a local .env file.
 """
@@ -329,12 +329,12 @@ def usage(cfg, log=print):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='topicstream', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', choices=['serve', 'collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak', 'profiles', 'amplifiers'])
+    ap.add_argument('command', choices=['serve', 'collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak', 'profiles', 'amplifiers', 'explorer'])
     ap.add_argument('path', nargs='?', help='CSV path for import-csv')
     ap.add_argument('--config', default='config.json'); ap.add_argument('--every', type=int, default=15, help='minutes between collections in watch mode')
     ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--accounts', help='import-csv: a profiles CSV (handle, created_utc, followers, posts_total) to fill account age, followers and lifetime posts'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
     ap.add_argument('--hours', type=int, default=1, help='peak: how many of the busiest hours per term to read with recorded coverage'); ap.add_argument('--at', help='peak: one specific hour, e.g. 2026-10-21T14:00')
-    ap.add_argument('--tag', help='peak: only this term (as the report labels it, e.g. #php2shell or php2shell)'); ap.add_argument('--dry-run', action='store_true', help='peak, profiles, amplifiers: show the plan and cost, buy nothing')
+    ap.add_argument('--tag', help='peak: only this term (as the report labels it, e.g. #php2shell or php2shell)'); ap.add_argument('--dry-run', action='store_true', help='peak, profiles, amplifiers: show the plan and cost, buy nothing; explorer: print the path of the page without opening a browser')
     ap.add_argument('--sample', type=int, help='peak: read only the first N posts of each hour (recorded as a sample); amplifiers: how many reposters to sample (default 100)')
     ap.add_argument('--reposts', choices=['include', 'exclude'], help="peak: read every post of the hour, or only its originals and replies (-is:retweet; the default, from the config's x.reposts)")
     ap.add_argument('--post', help='amplifiers: the id of the post whose reposters to sample')
@@ -344,6 +344,14 @@ def main(argv=None):
     if a.command == 'serve':
         from .web import serve
         serve(a.data_dir,a.port); return
+    if a.command == 'explorer':
+        # The co-posting explorer is one self-contained page: needs no config, no database and no network.
+        page = Path(__file__).with_name('static') / 'coposting_explorer.html'
+        print(page)
+        if not a.dry_run:
+            import webbrowser
+            webbrowser.open(page.as_uri())
+        return
     cfg = load_cfg(a.config)
     if a.command == 'collect': collect(cfg).close()
     elif a.command == 'estimate': estimate(cfg)

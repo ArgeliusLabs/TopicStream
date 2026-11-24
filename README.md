@@ -86,6 +86,18 @@ Required columns: `timestamp_utc`, `handle`, `text`. Recommended: `post_id`, `au
 
 UI limits: 10 MB and 50,000 post rows; 1 MB profiles. Imports are validated before posts are stored. Only matching posts within the saved case interval appear in analysis. Try [synthetic-posts.csv](examples/synthetic-posts.csv) with phrase `water quality`, start `2026-10-29`, end `2026-11-05`. These nine invented posts demonstrate three recurring accounts; with no independent background, the shuffled timing comparison remains equally coordinated.
 
+## Co-posting explorer
+
+`topicstream/static/coposting_explorer.html` is one self-contained page for looking at bursts by hand: the same message, or the same link, from several different accounts inside a short window. Load any CSV of posts, choose which columns hold the time, the account, the text and the link, and move two sliders, the window in minutes and the minimum number of distinct accounts. It lists the bursts and the candidate accounts, grouped by text with hashtags removed, by exact text, by exact link, or by every account whose link contains a string you type (a tracking token, for example). The candidate list copies to the clipboard or downloads as CSV.
+
+```console
+python -m topicstream explorer
+```
+
+opens it in your browser, and the workspace links to it at `/explorer`. The file is read by the page itself: nothing is uploaded, the page makes no network requests, and because it is a single file with no dependencies you can copy it to an offline machine by itself.
+
+Use it before you write a config. There is no correct window or minimum; change one, see which accounts join and which leave, and look at those accounts. When two numbers suit your data, set them as `burst.window_minutes` and `burst.minimum`. A burst is a lead and nothing more: people who copy a post they agree with land in bursts, an account that always posts an hour late never does, and a group that posts on a published schedule is coordinated and may be entirely genuine.
+
 ## CLI workflow
 
 Copy `config.example.json` to `config.json`, edit its terms and sources, then:
@@ -102,6 +114,7 @@ python -m topicstream peak --config config.json --tag komdigi --at 2026-11-18T13
 python -m topicstream peak --config config.json --tag komdigi --at 2026-11-18T13:00 --reposts include
 python -m topicstream profiles --config config.json --dry-run
 python -m topicstream amplifiers --config config.json --post 1990000000000000000 --sample 100
+python -m topicstream explorer
 ```
 
 `collect` collects without writing a report; `run` does both. `peak` reads selected one-hour windows complete, keeping partial status until pagination ends; by default it reads the hour's originals and replies (`-is:retweet`), which is where the text, links and authors are, at a fraction of the price, and `--reposts include` reads everything. `profiles` buys the author profiles the report needs (see the cost section below); `amplifiers` samples who reposted one post. `estimate` may make paid counts requests when X credentials are present, guarded by the same budget. `usage` prints provider meter fields separately from the local ledger. `discover --add N` edits the config; automatic discovery is off in the examples.

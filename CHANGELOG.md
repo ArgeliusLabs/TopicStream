@@ -1,5 +1,11 @@
 # Changes
 
+## 0.3.5 (November 24, 2026)
+
+- New: the co-posting explorer, `topicstream/static/coposting_explorer.html`. One self-contained page (no dependencies, no network requests) that loads any CSV of posts, lets you map the time, account, text and link columns, and shows bursts and candidate accounts as you move the window and the minimum number of accounts. Groups by text with hashtags removed, exact text, exact link, or any link containing a string. Copy or download the candidate list. `python -m topicstream explorer` opens it (`--dry-run` prints its path), and the workspace serves it at `/explorer`, with its one inline script allowed by hash under the existing content security policy.
+- It is the tool to use before writing a config: the two numbers it helps you choose are `burst.window_minutes` and `burst.minimum`.
+- No change to collection, detection, pricing or the report. A database and a config from 0.3.4 work unchanged.
+
 ## 0.3.4 (November 23, 2026)
 
 Cost and correctness changes from the first live run of 0.3.3 after X began billing author profiles (measured 23 November: three complete hours of one topic, 3,045 posts, $43.85 on the account against $43.855 in the ledger; two thirds of it author profiles).

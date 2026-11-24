@@ -118,6 +118,36 @@ class ExerciseDataTests(unittest.TestCase):
                 self.assertIsNotNone(rows['nurani_pesisir']['age_days']); self.assertIn('low_lifetime_activity', rows['nurani_pesisir']['signals'])
                 self.assertEqual(rows['warga_rawa22']['reply_to'], 'ombak_merah')                                                  # in_reply_to resolved from a post id to its author
 
+class ExplorerTests(unittest.TestCase):
+    """The co-posting explorer is one static page: it must stay self-contained, and the command and the workspace must find it."""
+    def test_page_is_self_contained_and_the_command_prints_its_path(self):
+        import io, contextlib, re, topicstream
+        from topicstream.__main__ import main
+        page = Path(topicstream.__file__).with_name('static') / 'coposting_explorer.html'
+        html = page.read_text(encoding='utf-8')
+        self.assertIn('Co-posting explorer', html)
+        self.assertEqual(len(re.findall(r'<script>', html)), 1)                      # the workspace allows exactly one inline script, by hash
+        self.assertNotRegex(html.replace('https://github.com/ArgeliusLabs/TopicStream', ''), r'https?://|src=|@import')   # no external scripts, fonts or calls
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out): main(['explorer', '--dry-run'])
+        self.assertEqual(Path(out.getvalue().strip()), page)
+
+    def test_workspace_serves_the_page_with_its_script_allowed_by_hash_only(self):
+        import threading, urllib.request, base64, hashlib, re
+        from topicstream import web
+        with tempfile.TemporaryDirectory() as d:
+            server = web.make_server(d, 0)
+            th = threading.Thread(target=server.serve_forever, daemon=True); th.start()
+            try:
+                with urllib.request.urlopen(f'http://127.0.0.1:{server.server_port}/explorer', timeout=10) as r:
+                    body = r.read(); csp = r.headers['Content-Security-Policy']
+            finally:
+                server.shutdown(); th.join(10); server.server_close(); server.cases.close()
+        want = 'sha256-' + base64.b64encode(hashlib.sha256(re.search(rb'<script>(.*?)</script>', body, re.S).group(1)).digest()).decode()
+        self.assertIn(b'Co-posting explorer', body)
+        self.assertIn(want, csp); self.assertNotIn('unsafe-inline', csp.split('style-src')[0])    # scripts: self and this one hash, nothing wider
+
+
 if __name__ == '__main__': unittest.main()
 
 

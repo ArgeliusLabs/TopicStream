@@ -60,6 +60,7 @@ def make_server(root,port=8765):
                     if len(parts)==3: self.send(200,cases.detail(case_id)); return
                     if len(parts)==5 and parts[3]=='groups': self.send(200,cases.evidence(case_id,parts[4])); return
                     if len(parts)==4 and parts[3]=='export': self.send(200,cases.export(case_id),filename='topicstream-case.json'); return
+                    if len(parts)==4 and parts[3]=='posts.csv': self.send(200,'\ufeff'+cases.posts_csv(case_id),'text/csv',filename='topicstream-posts.csv'); return
                     if len(parts)==4 and parts[3]=='report':
                         report=cases.folder(case_id)/'report.html'
                         self.send(200,report.read_bytes(),'text/html',report_script=True); return

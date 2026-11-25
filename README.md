@@ -88,15 +88,29 @@ UI limits: 10 MB and 50,000 post rows; 1 MB profiles. Imports are validated befo
 
 ## Co-posting explorer
 
-`topicstream/static/coposting_explorer.html` is one self-contained page for looking at bursts by hand: the same message, or the same link, from several different accounts inside a short window. Load any CSV of posts, choose which columns hold the time, the account, the text and the link, and move two sliders, the window in minutes and the minimum number of distinct accounts. It lists the bursts and the candidate accounts, grouped by text with hashtags removed, by exact text, by exact link, or by every account whose link contains a string you type (a tracking token, for example). The candidate list copies to the clipboard or downloads as CSV.
+`topicstream/static/coposting_explorer.html` is one self-contained page for looking at bursts by hand: the same message, or the same link, from several different accounts inside a short window. It is the hands-on version of the same-text and same-link rules the report runs at fixed settings.
+
+Three ways in:
 
 ```console
+python -m topicstream export-csv posts.csv --config config.json
 python -m topicstream explorer
 ```
 
-opens it in your browser, and the workspace links to it at `/explorer`. The file is read by the page itself: nothing is uploaded, the page makes no network requests, and because it is a single file with no dependencies you can copy it to an offline machine by itself.
+writes the posts the report analyses to a CSV (reading the local database, so it costs nothing) and opens the page, where you choose that file. In the workspace, **Explore bursts** on a case opens the page on that case's posts directly, and **Posts CSV** downloads the same file. Or open the HTML file itself and load any CSV of posts you were given; it does not have to come from TopicStream.
 
-Use it before you write a config. There is no correct window or minimum; change one, see which accounts join and which leave, and look at those accounts. When two numbers suit your data, set them as `burst.window_minutes` and `burst.minimum`. A burst is a lead and nothing more: people who copy a post they agree with land in bursts, an account that always posts an hour late never does, and a group that posts on a published schedule is coordinated and may be entirely genuine.
+On the page you say which columns hold the time, the account, the text and the link (they are guessed from the header), then move two sliders: the window in minutes and the minimum number of distinct accounts. It lists the bursts and the candidate accounts, grouped by text with hashtags removed, by exact text, by exact link, or by every account whose link contains a string you type (a tracking token, for example).
+
+- **Pin this list**, change one setting, and the page names the accounts that joined and the accounts that left. Those accounts are the ones worth opening.
+- Click a burst to list its accounts in the order they posted.
+- When the file has a `content_type` column, tick which kinds of post to include. Reposts and replies start unticked, because a repost has the same text by design. Tick reposts in to see which posts were amplified and by how many accounts; a wave that lasts an hour then shows as several bursts back to back, and widening the window shows it as one. That is amplification, not evidence of coordination.
+- Copy the candidate list or download it as CSV.
+
+Opened as a file, the page makes no network requests, nothing is uploaded, and because it is a single file with no dependencies you can copy it to an offline machine by itself. Inside the workspace it reads a case's posts from the local server and nothing else.
+
+There is no correct window or minimum. When two numbers suit your data, set them as `burst.window_minutes` and `burst.minimum`. A burst is a lead and nothing more: people who copy a post they agree with land in bursts, an account that always posts an hour late never does, and a group that posts on a published schedule is coordinated and may be entirely genuine.
+
+`export-csv` takes `--accounts profiles.csv` to write the profile facts held for the authors as well. Both files are in the layout `import-csv` reads, so a collection can be moved to another machine, or handed to a colleague, as two CSVs.
 
 ## CLI workflow
 
@@ -114,6 +128,7 @@ python -m topicstream peak --config config.json --tag komdigi --at 2026-11-18T13
 python -m topicstream peak --config config.json --tag komdigi --at 2026-11-18T13:00 --reposts include
 python -m topicstream profiles --config config.json --dry-run
 python -m topicstream amplifiers --config config.json --post 1990000000000000000 --sample 100
+python -m topicstream export-csv posts.csv --config config.json --accounts profiles.csv
 python -m topicstream explorer
 ```
 

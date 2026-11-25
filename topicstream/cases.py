@@ -220,6 +220,11 @@ class Cases:
         write_report(self.config(case_id),log=lambda message:None,result=result)
         return {'status':'saved'}
 
+    def posts_csv(self,case_id):
+        """The posts of a case as CSV (the same layout as the export-csv command), for download and for the co-posting explorer."""
+        from . import export as E
+        with Store(self.config(case_id)['db']) as store: return E.posts_csv(selected_posts(store,self.config(case_id))[0])
+
     def export(self,case_id):
         detail=self.detail(case_id)
         with Store(self.config(case_id)['db']) as store:

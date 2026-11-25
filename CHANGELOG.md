@@ -1,5 +1,15 @@
 # Changes
 
+## 0.3.6 (November 25, 2026)
+
+Closes the gap between collecting and exploring: 0.3.5 shipped the co-posting explorer, but nothing wrote a collection in a form it could open.
+
+- New: `export-csv posts.csv` writes the posts the report analyses (stored posts inside the configured interval) as CSV, reading the local database and making no requests. `--accounts profiles.csv` also writes the profile facts held for their authors. The layout is the one `import-csv` reads back, so a collection round-trips, and the one the explorer maps without help. Reposts, replies and quotes are marked in `content_type`.
+- Workspace: **Explore bursts** opens the explorer on a case's posts (`/explorer?case=<id>`), and **Posts CSV** downloads them (`/api/cases/<id>/posts.csv`).
+- Explorer: tick which kinds of post to include when the file has a `content_type` column (reposts and replies start unticked); **Pin this list**, change a setting, and it names the accounts that joined and left; click a burst to list its accounts in posting order; long lists are cut at 60 names.
+- `import-csv` reads files with or without a byte-order mark, so CSVs saved by Excel import cleanly.
+- Tried on a real collection (three hours of one Indonesian topic on X, 3,045 posts): no same-text burst among the 134 originals, quotes and replies at any setting, and with reposts ticked in, the two reposted originals that dominate the hour appear as waves of several hundred to a thousand accounts. No change to collection, detection, pricing or the report.
+
 ## 0.3.5 (November 24, 2026)
 
 - New: the co-posting explorer, `topicstream/static/coposting_explorer.html`. One self-contained page (no dependencies, no network requests) that loads any CSV of posts, lets you map the time, account, text and link columns, and shows bursts and candidate accounts as you move the window and the minimum number of accounts. Groups by text with hashtags removed, exact text, exact link, or any link containing a string. Copy or download the candidate list. `python -m topicstream explorer` opens it (`--dry-run` prints its path), and the workspace serves it at `/explorer`, with its one inline script allowed by hash under the existing content security policy.

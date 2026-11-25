@@ -132,6 +132,40 @@ class ExplorerTests(unittest.TestCase):
         with contextlib.redirect_stdout(out): main(['explorer', '--dry-run'])
         self.assertEqual(Path(out.getvalue().strip()), page)
 
+    def test_export_csv_round_trips_and_opens_in_the_explorer(self):
+        """export-csv writes what import-csv reads back: same posts, same kinds, and the header the explorer maps without help."""
+        import csv as C
+        from topicstream.__main__ import export_csv
+        from topicstream import export as E
+        src = Path(__file__).resolve().parents[1] / 'examples' / 'synthetic-posts.csv'
+        with tempfile.TemporaryDirectory() as d:
+            base = dict(tags=[], terms=['water quality'], start_utc='2026-10-01', end_utc='2026-12-01')
+            a = dict(base, db=str(Path(d) / 'a.sqlite'), report=str(Path(d) / 'a.html')); b = dict(base, db=str(Path(d) / 'b.sqlite'), report=str(Path(d) / 'b.html'))
+            import_csv(a, str(src), 'import', log=lambda *x: None)
+            out = Path(d) / 'posts.csv'; prof = Path(d) / 'profiles.csv'
+            n = export_csv(a, str(out), accounts=str(prof), log=lambda *x: None)
+            raw = out.read_bytes(); self.assertTrue(raw.startswith(b'\xef\xbb\xbf'))                  # a byte-order mark, so Excel reads the text correctly
+            with out.open(encoding='utf-8-sig', newline='') as f: rows = list(C.DictReader(f))
+            self.assertEqual(list(rows[0].keys()), E.COLUMNS); self.assertEqual(len(rows), n); self.assertGreater(n, 5)
+            for name in ('timestamp_utc', 'handle', 'text', 'link', 'content_type'): self.assertIn(name, rows[0])     # what the explorer looks for
+            self.assertTrue(prof.read_text(encoding='utf-8-sig').startswith('handle,account_id,created_utc,followers,posts_total'))
+            import_csv(b, str(out), 'import', log=lambda *x: None)
+            with Store(a['db']) as sa, Store(b['db']) as sb:
+                key = lambda p: (p['post_id'], p['created_utc'], p['author'], p['text'], tuple(p['links']), bool(p['is_repost']), E.content_type(p))
+                self.assertEqual(sorted(map(key, sa.posts())), sorted(map(key, sb.posts())))
+
+    def test_export_marks_reposts_and_keeps_only_resolvable_reply_parents(self):
+        from topicstream import export as E
+        posts = [dict(post_id='1', source='x', author='a', created_utc='2026-01-01T00:00:00Z', text='hello', links=['https://e.org/1', 'https://e.org/2'], matched=['t']),
+                 dict(post_id='2', source='x', author='b', created_utc='2026-01-01T00:01:00Z', text='RT @a: hello', links=[], matched=['t'], is_repost=1, reference_type='repost', referenced_post_id='1'),
+                 dict(post_id='3', source='x', author='c', created_utc='2026-01-01T00:02:00Z', text='yes', links=[], matched=[], is_reply=1, reference_type='reply', referenced_post_id='1'),
+                 dict(post_id='4', source='x', author='d', created_utc='2026-01-01T00:03:00Z', text='no', links=[], matched=[], is_reply=1, reference_type='reply', referenced_post_id='999', author_followers=12)]
+        r = list(E.rows(posts))
+        self.assertEqual([x['content_type'] for x in r], ['post', 'repost', 'reply', 'reply'])
+        self.assertEqual((r[0]['link'], r[0]['links']), ('https://e.org/1', 'https://e.org/1 https://e.org/2'))
+        self.assertEqual((r[2]['in_reply_to'], r[3]['in_reply_to'], r[3]['referenced_post_id']), ('1', '', '999'))
+        self.assertIn('d,,,12,', E.profiles_csv(posts))
+
     def test_workspace_serves_the_page_with_its_script_allowed_by_hash_only(self):
         import threading, urllib.request, base64, hashlib, re
         from topicstream import web
@@ -146,6 +180,24 @@ class ExplorerTests(unittest.TestCase):
         want = 'sha256-' + base64.b64encode(hashlib.sha256(re.search(rb'<script>(.*?)</script>', body, re.S).group(1)).digest()).decode()
         self.assertIn(b'Co-posting explorer', body)
         self.assertIn(want, csp); self.assertNotIn('unsafe-inline', csp.split('style-src')[0])    # scripts: self and this one hash, nothing wider
+
+    def test_workspace_hands_a_case_to_the_explorer_as_csv(self):
+        import threading, urllib.request
+        from topicstream import web
+        from topicstream import export as E
+        with tempfile.TemporaryDirectory() as d:
+            server = web.make_server(d, 0)
+            th = threading.Thread(target=server.serve_forever, daemon=True); th.start()
+            try:
+                case = server.cases.create({'topic': 'water quality', 'sources': [], 'start_utc': '2026-01-01', 'end_utc': '2026-01-03'})
+                cid = case['case']['id'] if 'case' in case else case['id']
+                with urllib.request.urlopen(f'http://127.0.0.1:{server.server_port}/api/cases/{cid}/posts.csv', timeout=10) as r:
+                    body = r.read().decode('utf-8-sig'); kind = r.headers['Content-Type']
+            finally:
+                server.shutdown(); th.join(10); server.server_close(); server.cases.close()
+        self.assertTrue(kind.startswith('text/csv')); self.assertEqual(body.split('\r\n')[0], ','.join(E.COLUMNS))
+        html = (Path(web.__file__).with_name('static') / 'coposting_explorer.html').read_text(encoding='utf-8')
+        self.assertIn("/posts.csv", html); self.assertIn('id="explore"', (Path(web.__file__).with_name('static') / 'index.html').read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__': unittest.main()

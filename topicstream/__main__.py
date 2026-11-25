@@ -1,7 +1,7 @@
 """TopicStream: local investigations into recurring coordinated public activity.
 
 Start the browser workspace: python -m topicstream serve
-CLI: collect / report / run / watch / import-csv / estimate / usage / discover / peak / profiles / amplifiers / explorer.
+CLI: collect / report / run / watch / import-csv / estimate / usage / discover / peak / profiles / amplifiers / export-csv / explorer.
 Search coverage and behavior patterns do not establish inauthenticity.
 Credentials come from environment variables or a local .env file.
 """
@@ -240,6 +240,22 @@ def _pick(r, *names):
         if r.get(n) not in (None, ''): return r[n]
     return None
 
+def export_csv(cfg, path, accounts=None, log=print):
+    """Write the posts the report analyses (stored posts inside the configured interval) as a CSV that import-csv reads back and the
+    co-posting explorer opens as it is. With --accounts, also write the profile facts held for their authors. Costs nothing: it reads the database."""
+    from . import export as E
+    with Store(cfg['db']) as store: posts = selected_posts(store, cfg)[0]
+    with open(path, 'w', encoding='utf-8-sig', newline='') as f: f.write(E.posts_csv(posts))
+    kinds = {}
+    for p in posts: kinds[E.content_type(p)] = kinds.get(E.content_type(p), 0) + 1
+    log(f"{len(posts)} posts written to {path} ({', '.join(f'{n} {k}' for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])) or 'none in the interval'})")
+    if accounts:
+        text = E.profiles_csv(posts)
+        with open(accounts, 'w', encoding='utf-8-sig', newline='') as f: f.write(text)
+        log(f'{max(0, text.count(chr(10)) - 1)} account profiles written to {accounts}')
+    log('Open it in the co-posting explorer: python -m topicstream explorer')
+    return len(posts)
+
 def import_csv(cfg, path, source, log=print, accounts=None, now=None):
     """Load a posts CSV with the Day 6 export columns (timestamp_utc, handle, text, link, content_type, likes, reposts, replies, lang,
     post_id, in_reply_to). With --accounts, a profiles CSV (handle, created_utc, followers, posts_total; a few aliases accepted) fills
@@ -247,13 +263,13 @@ def import_csv(cfg, path, source, log=print, accounts=None, now=None):
     time (and the run record) for reproducible builds."""
     now = iso(now or utcnow()); rows = []; prof = {}
     if accounts:
-        with open(accounts, encoding='utf-8') as f:
+        with open(accounts, encoding='utf-8-sig') as f:
             for r in csv.DictReader(f):
                 h = _pick(r, 'handle', 'username', 'screen_name', 'author')
                 if h: prof[h.lstrip('@')] = r
         log(f'account profiles: {len(prof)} from {accounts}')
     def when(v): return iso(parse_time(v))
-    with open(path, encoding='utf-8') as f: raw = list(csv.DictReader(f))
+    with open(path, encoding='utf-8-sig') as f: raw = list(csv.DictReader(f))      # utf-8-sig reads files with or without a byte-order mark (Excel and export-csv write one)
     by_id = {r['post_id']: r['handle'] for r in raw if r.get('post_id')}          # in_reply_to names a post; the signal wants the account
     for r in raw:
         text = r.get('text', ''); link = r.get('link') or ''; a = prof.get(r['handle'].lstrip('@'), {}); parent = r.get('in_reply_to') or ''
@@ -329,8 +345,8 @@ def usage(cfg, log=print):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='topicstream', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', choices=['serve', 'collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak', 'profiles', 'amplifiers', 'explorer'])
-    ap.add_argument('path', nargs='?', help='CSV path for import-csv')
+    ap.add_argument('command', choices=['serve', 'collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak', 'profiles', 'amplifiers', 'export-csv', 'explorer'])
+    ap.add_argument('path', nargs='?', help='import-csv: the CSV to read; export-csv: the CSV to write')
     ap.add_argument('--config', default='config.json'); ap.add_argument('--every', type=int, default=15, help='minutes between collections in watch mode')
     ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--accounts', help='import-csv: a profiles CSV (handle, created_utc, followers, posts_total) to fill account age, followers and lifetime posts'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
     ap.add_argument('--hours', type=int, default=1, help='peak: how many of the busiest hours per term to read with recorded coverage'); ap.add_argument('--at', help='peak: one specific hour, e.g. 2026-10-21T14:00')
@@ -366,6 +382,9 @@ def main(argv=None):
         amplifiers(cfg, a.post, a.sample or 100, a.dry_run)
     elif a.command == 'report': write_report(cfg)
     elif a.command == 'run': collect(cfg).close(); write_report(cfg)
+    elif a.command == 'export-csv':
+        if not a.path: sys.exit('export-csv needs a path to write, e.g. posts.csv')
+        export_csv(cfg, a.path, accounts=a.accounts)
     elif a.command == 'import-csv':
         if not a.path: sys.exit('import-csv needs a path');
         import_csv(cfg, a.path, a.source, accounts=a.accounts); write_report(cfg)

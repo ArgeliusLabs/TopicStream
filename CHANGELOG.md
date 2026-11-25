@@ -1,5 +1,10 @@
 # Changes
 
+## 0.3.13 (November 25, 2026)
+
+- **Text and link matches** says how texts are compared: hashtags, links and mentions are taken out and capitals ignored, and reposts are left out. A reader who had never seen the tool found thirteen "identical" posts ending in three different sets of hashtags and could not tell why they matched.
+- No change to any number.
+
 ## 0.3.12 (November 25, 2026)
 
 - Timestamps in the report's tables stay on one line. With the columns 0.3.11 added, the start time in the match tables was being broken across three lines (`2026-02-` / `03T02:47` / `:12Z`). Same fix for the activity rules, purchased windows, cross-platform matches and run details.

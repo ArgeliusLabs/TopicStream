@@ -153,6 +153,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn('<th>Candidate tag</th><th>Posts</th><th>Accounts</th><th>Posts per account</th><th>Travels with</th>', html)
         self.assertIn('<td>#campaign</td><td>60</td><td>6</td><td>10.0</td><td>#osint</td>', html)
         self.assertIn('<th>Start UTC</th><th>Accounts</th><th>Posts</th><th>Which accounts</th><th>Query interval exhausted</th><th>Example</th>', html)
+        self.assertIn('hashtags, links and mentions are taken out and capitals are ignored', html)                                                          # the report says how it compares texts
+        self.assertEqual(A._norm_text('Same  Words here #One https://x.example/a @someone'), A._norm_text('same words here #Two #Three'))                    # and that is what the rule does
         same_text = html[html.index('<h3>Same text</h3>'):html.index('<h3>Same link</h3>')]
         rows = re.findall(r'<tr><td><span class="tok">[^<]*</span></td><td>(\d+)</td><td>(\d+)</td><td>([^<]*)</td>', same_text); self.assertTrue(rows)                 # the start time is kept on one line
         for accounts, uses, listed in rows: self.assertEqual(int(accounts), listed.count(', ') + 1); self.assertGreaterEqual(int(uses), int(accounts))            # the count is the number of names beside it

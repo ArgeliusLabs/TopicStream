@@ -240,7 +240,7 @@ def render(store,cfg,now=None,result=None):
     near=A.paraphrase_bursts(posts[:2000],int(bc.get('paraphrase_window_minutes',60)),minimum,float(bc.get('paraphrase_threshold',.35)))
     if len(posts)>2000: w('<p class="notice">Exploratory similar-wording matches use the earliest 2,000 posts. Recurring groups use their separately stated analysis limit.</p>')
     w('<h2 id="bursts">Text and link matches</h2><p>Matching content may come from a common public source or legitimate organizing. Similar wording does not establish AI authorship.</p>')
-    w(f'<p class="muted">Settings used: Same text and Same link list at least {minimum} accounts posting the identical text or link within {window} minutes. Similar wording lists at least {minimum} accounts posting closely matching text within {int(bc.get("paraphrase_window_minutes",60))} minutes.</p>')
+    w(f'<p class="muted">Settings used: Same text and Same link list at least {minimum} accounts posting the identical text or link within {window} minutes. Similar wording lists at least {minimum} accounts posting closely matching text within {int(bc.get("paraphrase_window_minutes",60))} minutes. Before texts are compared, hashtags, links and mentions are taken out and capitals are ignored, so two posts with the same sentences and different hashtags are the same text. Reposts are left out.</p>')
     for title,items,field in [('Same text',exact,'text'),('Same link',links,'link'),('Similar wording',near,'samples')]:
         w('<h3>'+title+'</h3>')
         wording=field=='samples'

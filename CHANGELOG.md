@@ -1,11 +1,20 @@
 # Changes
 
+## 0.3.10 (November 25, 2026)
+
+0.3.9 put the per-tag account table back shorter than it used to be. Checked against a 0.2.5 report on the same data, and brought into line with it:
+
+- **Top originating accounts** lists up to 15 accounts (0.3.9 stopped at 10) and has its **Reposts** column again: how many of an account's posts with the tag are reposts. The order is unchanged, most posts with the tag first.
+- Each tag card's heading carries the tag's totals again: `#tag · 158 posts from 17 accounts`.
+- **Related hashtags** shows **Share** and **Lift** again, with a line saying what each is. The analysis never stopped computing them.
+- No change to collection, detection, pricing or any existing number in a report.
+
 ## 0.3.9 (November 25, 2026)
 
 Three panels are back in the report. They were in every version up to 0.2.5 and did not come across when the report was rebuilt around recurring groups in 0.3.0. The analysis never stopped computing them.
 
 - **Tracking tokens carried by several accounts**, under Shared links and related tags: each campaign or referral token found on the links in the posts (`utm_campaign=…`, a referral code, a short code), how many distinct accounts carry it, and which. Share-button boilerplate is left out and tokens that always travel together are one row, as before. The note under the table says what a shared token does and does not show: it ties posts to one source of links, and anyone who copies or forwards a post carries the token along.
-- **Top originating accounts**, in each tag's card: the ten accounts that used the tag most, with posts, share of the tag, age at first post, followers and median likes.
+- **Top originating accounts**, in each tag's card: the ten accounts that used the tag most, with posts, share of the tag, age at first post, followers and median likes. (Fifteen, with reposts, from 0.3.10.)
 - **Followers and Lifetime posts** columns in Account observations, beside each account's signals, so the facts behind `no_audience` and `low_lifetime_activity` are on the page.
 - Medians print as 1 or 0.5, not 1.0.
 - Where a section has nothing to list (no shared domain, no candidate tag), the report says so in a sentence in place of an empty table.

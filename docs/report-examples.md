@@ -1,6 +1,6 @@
 # Current report examples
 
-The first three screenshots show TopicStream **0.3.2**, captured November 5, 2026; the last two show the panels restored in **0.3.9**, captured November 25, 2026. All accounts, posts, counts, and collection-window records are invented demonstration data. They are not the Singapore pilot or a classroom export, and no API requests were made to generate them.
+The first three screenshots show TopicStream **0.3.2**, captured November 5, 2026; the last two show the panels restored in **0.3.9** and **0.3.10**, captured November 25, 2026. All accounts, posts, counts, and collection-window records are invented demonstration data. They are not the Singapore pilot or a classroom export, and no API requests were made to generate them.
 
 Reproduce the example from the checkout:
 
@@ -31,7 +31,7 @@ The invented capped-window example remains partial. It demonstrates how an unfin
 
 ## Top originating accounts
 
-Each tag or term card lists the ten accounts that used it most, with what the platform says about each: age at first post, followers and median likes. The Account observations table carries the same facts (Followers, Lifetime posts, Median likes) beside each account's signals. "Unknown" is shown where a profile was not collected.
+Each tag or term card lists up to fifteen accounts that used it most, most posts first, with how many of those posts are reposts and what the platform says about each account: age at first post, followers and median likes. The Account observations table carries the same facts (Followers, Lifetime posts, Median likes) beside each account's signals. "Unknown" is shown where a profile was not collected.
 
 ![Synthetic report: top originating accounts for a term](report-accounts.png)
 

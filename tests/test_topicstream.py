@@ -117,7 +117,11 @@ class AnalysisTests(unittest.TestCase):
         token_row = re.search(r'<tr><td><span class="tok">utm_campaign=zz9</span></td><td>(\d+)</td>', html)
         self.assertTrue(token_row, 'the campaign token has a row of its own'); self.assertEqual(int(token_row.group(1)), 6)        # six accounts link site.example in the fixture
         self.assertNotIn('utm_source=twitter</span>', html)                                                                     # share-button boilerplate is not a token
-        self.assertIn('Top originating accounts', html); self.assertIn('<th>Followers</th><th>Median likes</th>', html)
+        self.assertIn('Top originating accounts', html); self.assertIn('<th>Posts with this tag</th><th>Share of the tag</th><th>Reposts</th><th>Age at first post (days)</th><th>Followers</th><th>Median likes</th>', html)
+        self.assertIn('<th>Hashtag</th><th>Posts</th><th>Share</th><th>Lift</th><th>Accounts</th>', html)                          # related hashtags keep their share and lift
+        self.assertRegex(html, r'<h3>#?osint <span class="muted">· \d+ posts from \d+ accounts</span></h3>')                    # the card heading carries the tag's totals
+        card = html[html.index('Top originating accounts'):]; rows = card[:card.index('</table>')].count('<tr>') - 1
+        self.assertEqual(rows, min(15, len({p['author'] for p in self.posts if any('osint' in m for m in p['matched'])})))                       # up to fifteen accounts, as before 0.3.0
         self.assertIn('<th>Age at event</th><th>Followers</th><th>Lifetime posts</th><th>Median likes</th>', html)
         self.assertIn('<td>41</td>', html)                                                                                    # the lifetime post count reaches the account table
         with stored_directory() as d:                                                                                         # nothing to show is said plainly

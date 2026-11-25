@@ -1,8 +1,12 @@
 # Changes
 
+## Unreleased
+
+- `examples/explorer-demo.csv`: a made-up sample for the co-posting explorer (96 posts, 24 accounts), with `examples/build_explorer_demo.py`, which writes it and lists what each setting shows.
+
 ## 0.3.6 (November 25, 2026)
 
-Closes the gap between collecting and exploring: 0.3.5 shipped the co-posting explorer, but nothing wrote a collection in a form it could open.
+Collect, export, explore: a collection now opens in the co-posting explorer in one step.
 
 - New: `export-csv posts.csv` writes the posts the report analyses (stored posts inside the configured interval) as CSV, reading the local database and making no requests. `--accounts profiles.csv` also writes the profile facts held for their authors. The layout is the one `import-csv` reads back, so a collection round-trips, and the one the explorer maps without help. Reposts, replies and quotes are marked in `content_type`.
 - Workspace: **Explore bursts** opens the explorer on a case's posts (`/explorer?case=<id>`), and **Posts CSV** downloads them (`/api/cases/<id>/posts.csv`).

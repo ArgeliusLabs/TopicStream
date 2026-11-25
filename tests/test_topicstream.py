@@ -154,6 +154,16 @@ class ExplorerTests(unittest.TestCase):
                 key = lambda p: (p['post_id'], p['created_utc'], p['author'], p['text'], tuple(p['links']), bool(p['is_repost']), E.content_type(p))
                 self.assertEqual(sorted(map(key, sa.posts())), sorted(map(key, sb.posts())))
 
+    def test_explorer_demo_sample_is_what_its_builder_writes(self):
+        """The documented numbers for the sample hold only if the committed CSV is the builder's output."""
+        import runpy, shutil
+        ex = Path(__file__).resolve().parents[1] / 'examples'
+        with tempfile.TemporaryDirectory() as d:
+            shutil.copy(ex / 'build_explorer_demo.py', Path(d) / 'build_explorer_demo.py')
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()): runpy.run_path(str(Path(d) / 'build_explorer_demo.py'), run_name='__main__')
+            self.assertEqual((Path(d) / 'explorer-demo.csv').read_bytes(), (ex / 'explorer-demo.csv').read_bytes())
+
     def test_export_marks_reposts_and_keeps_only_resolvable_reply_parents(self):
         from topicstream import export as E
         posts = [dict(post_id='1', source='x', author='a', created_utc='2026-01-01T00:00:00Z', text='hello', links=['https://e.org/1', 'https://e.org/2'], matched=['t']),

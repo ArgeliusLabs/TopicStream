@@ -99,6 +99,8 @@ python -m topicstream explorer
 
 writes the posts the report analyses to a CSV (reading the local database, so it costs nothing) and opens the page, where you choose that file. In the workspace, **Explore bursts** on a case opens the page on that case's posts directly, and **Posts CSV** downloads the same file. Or open the HTML file itself and load any CSV of posts you were given; it does not have to come from TopicStream.
 
+To see it move before you have data of your own, load `examples/explorer-demo.csv`, a made-up sample of 96 posts: ten accounts that post together on three days, one that is slow, one that is an hour late, two people who copied a post, two who forwarded the link later, and ordinary chatter around them. `examples/build_explorer_demo.py` writes it and says what each setting should show.
+
 On the page you say which columns hold the time, the account, the text and the link (they are guessed from the header), then move two sliders: the window in minutes and the minimum number of distinct accounts. It lists the bursts and the candidate accounts, grouped by text with hashtags removed, by exact text, by exact link, or by every account whose link contains a string you type (a tracking token, for example).
 
 - **Pin this list**, change one setting, and the page names the accounts that joined and the accounts that left. Those accounts are the ones worth opening.

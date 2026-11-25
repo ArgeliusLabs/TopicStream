@@ -1,5 +1,31 @@
 # Changes
 
+## 0.3.11 (November 25, 2026)
+
+The rest of what the report showed up to 0.2.5 is back. A 0.2.5 report and a current one were rendered on the same data and compared panel by panel and column by column; everything below was still being computed and no longer printed.
+
+In each tag card:
+
+- **First post, peak day, typical day, empty days**, in a sentence beside the daily bars (the old overview tiles, said per tag).
+- **Busiest window and account concentration**: the busiest stretch for the tag with posts, accounts, posts per account and the average window, and how many of the tag's accounts were under 30 and 90 days old. The alert table at the top still shows the first window that tripped a rule; this is the biggest one, which can be different.
+- **X volume per hour** as bars again, above the table.
+- **What the platforms report for this tag**: the per-day uses and accounts each Mastodon server (or X) reports itself. The collector never stopped storing these.
+
+In the tables:
+
+- **Text and link matches** show how many accounts and posts each match holds; Similar wording also shows how many wordings and the largest identical group.
+- **Account observations** has Replies (with who the account replies to most), Links (with the domain it links most), Languages and each account's own Tightest 8 hours with the share of its posts inside. Rows are still ordered by number of signals, then posts.
+- **Observed posting-hour comparison** has its chart again, now with both groups: 24 hours, the selected accounts beside all stored posts, each as a share of its own posts, the tightest eight hours marked. The sentence and the table stay.
+- **Purchased X windows** shows accounts and posts per account for each hour; **Early observed participants** shows the posts and linked domains of the first ten minutes.
+- **Creation-date concentration** shows both shares beside the ratio; **Cross-platform matches** shows posts and accounts.
+- **Other tags that travel with the tracked ones** has Posts per account and Travels with.
+
+One behaviour change: when several eight-hour bands hold the same number of posts, the band shown is the one centred on them (posts from 01:00 to 06:59 read as 00:00 to 08:00, where they used to read as 23:00 to 07:00). The share inside the band does not change, and no signal depends on which band is shown. A comparison between a group and all stored posts can move only where the group's own band was tied.
+
+`tests/test_report_panels.py` is new: it lists every panel the report prints and every analysis it is expected to show, and fails by name if one goes missing. That is the check that would have caught 0.3.0.
+
+Nothing here makes a request or costs anything. No change to collection, detection or pricing.
+
 ## 0.3.10 (November 25, 2026)
 
 0.3.9 put the per-tag account table back shorter than it used to be. Checked against a 0.2.5 report on the same data, and brought into line with it:

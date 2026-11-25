@@ -253,11 +253,18 @@ def paraphrase_bursts(posts, window_min=60, minimum=3, threshold=0.35, min_token
 
 
 def hour_profile(posts):
-    """Posts per UTC hour of day, and the tightest 8-hour band: descriptive concentration in any eight-hour band."""
+    """Posts per UTC hour of day, and the tightest 8-hour band: descriptive concentration in any eight-hour band.
+    Ties between bands with the same count go to the band centred on the posts, then to the earlier start."""
     h = [0] * 24
     for p in posts: h[int(p['created_utc'][11:13])] += 1
-    n = sum(h) or 1; best = max(((sum(h[(s + k) % 24] for k in range(8)) / n, s) for s in range(24)))
-    return dict(hours=h, band_share=best[0], band_start=best[1], band_end=(best[1] + 8) % 24)
+    n = sum(h) or 1; inside = [sum(h[(s + k) % 24] for k in range(8)) for s in range(24)]; top = max(inside)
+    def lopsided(s):
+        # When several eight-hour stretches hold the same posts, show the one that sits evenly around them: posts from 01:00 to 06:59
+        # read as 00:00 to 08:00, not as 23:00 to 07:00. The share is the same whichever is shown.
+        used = [k for k in range(8) if h[(s + k) % 24]]
+        return abs(used[0] - (7 - used[-1])) if used else 0
+    start = min((s for s in range(24) if inside[s] == top), key=lambda s: (lopsided(s), s))
+    return dict(hours=h, band_share=top / n, band_start=start, band_end=(start + 8) % 24)
 
 def hour_comparison(posts, subset_accounts, baseline_posts=None):
     """Compare both populations in the subset's same eight-hour UTC band."""

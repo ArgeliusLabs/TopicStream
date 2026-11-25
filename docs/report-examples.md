@@ -1,6 +1,6 @@
 # Current report examples
 
-The first three screenshots show TopicStream **0.3.2**, captured November 5, 2026; the last two show the panels restored in **0.3.9** and **0.3.10**, captured November 25, 2026. All accounts, posts, counts, and collection-window records are invented demonstration data. They are not the Singapore pilot or a classroom export, and no API requests were made to generate them.
+The first three screenshots show TopicStream **0.3.2**, captured November 5, 2026; the last four show the panels restored in **0.3.9** to **0.3.11**, captured November 25, 2026. All accounts, posts, counts, and collection-window records are invented demonstration data. They are not the Singapore pilot or a classroom export, and no API requests were made to generate them.
 
 Reproduce the example from the checkout:
 
@@ -29,11 +29,23 @@ The invented capped-window example remains partial. It demonstrates how an unfin
 
 ![Synthetic report: coverage and partial collection window](report-peak.png)
 
-## Top originating accounts
+## A tag card: busiest window and top accounts
 
-Each tag or term card lists up to fifteen accounts that used it most, most posts first, with how many of those posts are reposts and what the platform says about each account: age at first post, followers and median likes. The Account observations table carries the same facts (Followers, Lifetime posts, Median likes) beside each account's signals. "Unknown" is shown where a profile was not collected.
+Each tag or term card opens with its totals, daily bars, and a sentence giving the first post, the peak day, a typical active day and the days with nothing. Then the busiest window with posts per account, and up to fifteen accounts that used the tag most, most posts first, with how many of those posts are reposts and what the platform says about each account: age at first post, followers and median likes. "Unknown" is shown where a profile was not collected.
 
-![Synthetic report: top originating accounts for a term](report-accounts.png)
+![Synthetic report: busiest window and top originating accounts for a term](report-accounts.png)
+
+## The account table
+
+One row per account with at least three posts in the analysis: its signals, and the facts behind them (age, followers, lifetime posts, median likes, share of replies, share of posts with a link and the domain linked most, languages, and its own tightest eight hours). The key above the table states the rule for every signal that appears.
+
+![Synthetic report: account observations with the facts behind each signal](report-account-table.png)
+
+## Posting hours, two groups side by side
+
+For accounts with two or more signals, the report sets their posts by UTC hour beside all stored posts, each as a share of its own total, and marks the tightest eight hours. The sentence above the chart gives the shares; a table under it has the counts.
+
+![Synthetic report: posting-hour comparison](report-hours.png)
 
 ## Tracking tokens and shared domains
 

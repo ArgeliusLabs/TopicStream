@@ -129,6 +129,68 @@ class AnalysisTests(unittest.TestCase):
             s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW)) for i, p in enumerate(self.posts)])
             html = R.render(s, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
         self.assertIn('No tracking token is carried by three or more accounts.', html)
+    def test_report_shows_window_account_detail_hour_chart_and_candidate_columns(self):
+        # four panels every report had up to 0.2.5: the analysis computes them, so the report prints them
+        def render(posts):
+            with stored_directory() as d:
+                s = Store(Path(d) / 'x.sqlite')
+                s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW),
+                                  author_created_utc=p['author_created_utc'], author_followers=p['author_followers'], author_posts=41, is_reply=p.get('is_reply', False), reply_to=p.get('reply_to')) for i, p in enumerate(posts)])
+                return R.render(s, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
+        html = render(self.posts)
+        self.assertIn('<h4>Busiest window and account concentration</h4>', html)
+        self.assertIn('<th>Busiest window (UTC)</th><th>Posts</th><th>Accounts</th><th>Posts per account</th><th>Average window</th>', html)
+        busiest = A.velocity([dict(p) for p in self.posts], '#osint', 30, 200, 10.0, 5.0, 10)
+        self.assertIn(f'<td>{busiest["uses"]}</td><td>{busiest["accounts"]}</td><td>{busiest["ratio"]:.1f}</td><td>{busiest["baseline"]:.2f}</td>', html)   # the panel shows what the analysis found
+        self.assertIn('<th>Median likes</th><th>Replies</th><th>Links</th><th>Languages</th><th>Tightest 8 hours (UTC)</th>', html)
+        self.assertIn('100%<small>site.example</small>', html); self.assertIn('<small>100% of its posts</small>', html)
+        self.assertEqual(html.count('class="hslot band"'), 8); self.assertEqual(html.count('class="hslot'), 24)                                              # 24 hours, eight of them the band
+        for kind in ('a', 'b'):
+            bars = re.findall(rf'class="hb {kind}" style="height:(\d+)px" title="\d\d:00 UTC: ([\d,]+) of ([\d,]+) ', html)
+            self.assertEqual(len(bars), 24); self.assertEqual(sum(int(n.replace(',', '')) for _, n, _ in bars), int(bars[0][2].replace(',', '')))           # the bars account for every post
+            self.assertLessEqual(max(int(h) for h, _, _ in bars), 132)
+        self.assertIn('Selected accounts: share of their', html); self.assertIn('All stored posts in the interval: share of', html)
+        self.assertIn('<th>Candidate tag</th><th>Posts</th><th>Accounts</th><th>Posts per account</th><th>Travels with</th>', html)
+        self.assertIn('<td>#campaign</td><td>60</td><td>6</td><td>10.0</td><td>#osint</td>', html)
+        self.assertIn('<th>Start UTC</th><th>Accounts</th><th>Posts</th><th>Which accounts</th><th>Query interval exhausted</th><th>Example</th>', html)
+        same_text = html[html.index('<h3>Same text</h3>'):html.index('<h3>Same link</h3>')]
+        rows = re.findall(r'<tr><td>[^<]*</td><td>(\d+)</td><td>(\d+)</td><td>([^<]*)</td>', same_text); self.assertTrue(rows)
+        for accounts, uses, listed in rows: self.assertEqual(int(accounts), listed.count(', ') + 1); self.assertGreaterEqual(int(uses), int(accounts))            # the count is the number of names beside it
+        if '<h3>Similar wording</h3><div' in html: self.assertIn('<th>Posts</th><th>Wordings</th><th>Largest identical group</th><th>Which accounts</th>', html)
+        self.assertIn('<th>Creation week</th><th>Matched accounts</th><th>Share of matched</th><th>All observed accounts</th><th>Share of all</th><th>Relative share</th>', html)
+        per_day = {}
+        for p in self.posts:
+            if '#osint' in p['matched']: per_day.setdefault(p['created_utc'][:10], []).append(p['author'])
+        most = max(len(v) for v in per_day.values()); day = min(d for d, v in per_day.items() if len(v) == most)                                          # the earliest of the busiest days
+        self.assertIn(f'Peak day: {day}, {most:,} posts from {len(set(per_day[day])):,} account', html)
+        self.assertIn('First post with this tag in the data: ' + min(p['created_utc'] for p in self.posts if '#osint' in p['matched'])[:16].replace('T', ' ') + ' UTC', html)
+        self.assertNotIn('What the platforms report for this tag', html)                                                                                     # nothing stored, nothing claimed
+        first = self.posts[0]['author']; replied = [dict(p, is_reply=True, reply_to='someone_else') if p['author'] == first else p for p in self.posts]
+        self.assertIn('<small>to someone_else</small>', render(replied))                                                                                     # who an account replies to most
+        with stored_directory() as d:                                                                                                                         # what the servers themselves report per day
+            st = Store(Path(d) / 'p.sqlite')
+            st.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW)) for i, p in enumerate(self.posts)])
+            st.add_tag_days([('mastodon', 'one.example', '#osint', day, 12, 7, iso(NOW)), ('mastodon', 'two.example', '#osint', day, 30, None, iso(NOW)), ('mastodon', 'one.example', '#untracked', day, 99, 9, iso(NOW))])
+            reported = R.render(st, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
+        self.assertIn('<summary>What the platforms report for this tag</summary>', reported)
+        self.assertIn(f'<td>{day}</td><td>12 / 7</td><td>30 / n/a</td>', reported); self.assertNotIn('99 / 9', reported)
+    def test_demo_case_report_shows_the_x_count_bars(self):
+        # the made-up case in examples/ holds an hourly X counts series: the report draws it and keeps the table
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
+        import build_report_demo
+        with stored_directory() as d:
+            made = build_report_demo.build(Path(d)); html = Path(made['report']).read_text(encoding='utf-8')
+        self.assertIn('X volume per hour, from the counts API', html); self.assertIn('<summary>X volume per hour from the counts API</summary>', html)
+        chart = html[html.index('aria-label="X matches per hour from the counts API"'):].split('<details>')[0]
+        self.assertEqual(len(re.findall(r'class="bar" style="height:\d+px;min-width:1px" title="2026-', chart)), 168)                                         # one bar an hour for the week
+        self.assertIn('utm_campaign=hw7', html); self.assertIn('Busiest window and account concentration', html)
+        self.assertIn('<th>Counts said</th><th>Returned</th><th>Accounts</th><th>Posts per account</th><th>Stop reason</th>', html)                              # the purchased hour says how many accounts wrote its posts
+        self.assertIn('<td>80</td><td>24</td><td>22</td><td>1.0</td>', html)                                                                          # 21 demo actors and one bystander in that hour
+    def test_tied_hour_bands_show_the_centred_one(self):
+        def at(hours): return [{'created_utc': '2026-01-01T%02d:30:00Z' % h} for h in hours]
+        even = A.hour_profile(at([1, 2, 3, 4, 5, 6])); self.assertEqual((even['band_start'], even['band_end'], even['band_share']), (0, 8, 1.0))          # not 23:00 to 07:00
+        full = A.hour_profile(at([3, 4, 5, 6, 7, 8, 9, 10])); self.assertEqual(full['band_start'], 3)
+        lone = A.hour_profile(at([22, 22, 22, 9])); self.assertEqual(lone['band_share'], 0.75); self.assertIn(22, [(lone['band_start'] + k) % 24 for k in range(8)])
 
 # Point TOPICSTREAM_SAMPLE_CSV at a posts export with the import-csv column names to run the end-to-end analysis test.
 CIAP = Path(os.environ.get('TOPICSTREAM_SAMPLE_CSV', Path(__file__).resolve().parents[2] / 'capstone/release/Evidence/1_Platform/exports/ciap_posts_2026-02-01_to_2026-03-08.csv'))

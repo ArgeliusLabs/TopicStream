@@ -88,6 +88,18 @@ def activity_rules(posts, counts, stored_alerts, cfg, start, end):
 
 def esc(value): return html.escape(str(value)) if value is not None else 'Unknown'
 def num(value): return f'{value:,}' if isinstance(value,(int,float)) else 'Unknown'
+# One line per account signal, in the order analyze.account_features applies them. Keep the two in step: tests compare them.
+SIGNAL_RULES={
+ 'replies':'at least 5 posts, and 8 in 10 of them are replies',
+ 'no_audience':'at least 5 posts with a median of 0 likes, from an account with fewer than 100 followers',
+ 'young':'the account was less than 30 days old at its first post here',
+ 'low_lifetime_activity':'the account was more than a year old at its first post here, has fewer than 100 posts in its whole life, and has at least 5 posts here',
+ 'observed_hour_concentration':'at least 10 posts on 3 or more days, with 9 in 10 of them inside one eight-hour band',
+ 'one_domain':'at least 5 posts, 8 in 10 of them carry a link, and 8 in 10 of those links go to one domain',
+ 'multilingual':'three or more languages, each on at least 1 in 10 of the account\'s posts',
+ 'co_posted':'the account appears in a Same text, Same link or Similar wording match above',
+}
+
 def _table(headers,rows):
     return '<div class="scroll"><table><thead><tr>'+''.join('<th>'+esc(h)+'</th>' for h in headers)+'</tr></thead><tbody>'+''.join('<tr>'+''.join('<td>'+str(v)+'</td>' for v in row)+'</tr>' for row in rows)+'</tbody></table></div>'
 def _link(url,label):
@@ -124,7 +136,9 @@ def render(store,cfg,now=None,result=None):
     w('<h2 id="activity-alerts">Activity rules tripped</h2><p>Volume and concentration alerts are investigation leads, not a CIB verdict. Retrospective sliding windows use a full-period baseline; live rules use preceding observed intervals.</p>')
     w(_table(['Source / query','First window UTC','Posts or API matches','Accounts','Reasons / rule'],[(esc(a['source']+' / '+a['tag']),esc(a['start'])+f' · {a["minutes"]} min',a['uses'],num(a['accounts']),esc('; '.join(a['reasons']))+'<br><span class="muted">'+esc(a['origin'])+'</span>') for a in alerts]) if alerts else '<p>No activity rule tripped at the configured thresholds.</p>')
     w('<div class="metrics">'+''.join(f'<div class="card"><strong>{esc(v)}</strong>{esc(k)}</div>' for k,v in [('Rows in analysis / interval',f'{len(posts):,} / {len(stored_posts):,}'),('Distinct accounts',len(names)),('Recurring groups',len(result['groups'])),('Local estimate / reserved',f'${store.spent():.4f}')])+'</div>')
+    st=result['settings']
     w('<h2 id="groups">Recurring account groups</h2>')
+    w(f'<p class="muted">The rule: two accounts become a pair when they post the same text, the same link or a repost of the same post within {st["window_minutes"]} minutes of each other, on at least {st["min_episodes"]} separate occasions (episodes) across at least {st["min_days"]} UTC days. Pairs that connect at least {st["min_accounts"]} accounts make a group.</p>')
     if not result['groups']: w('<p>No group meets the configured recurrence thresholds. Check coverage before drawing a negative conclusion.</p>')
     for index,g in enumerate(result['groups'],1):
         w(f'<section class="card" id="group-{g["id"]}"><h3>Group {index} · {len(g["accounts"])} accounts</h3><p>{esc(g["explanation"])}</p><p>Signals: {esc(", ".join(g["families"]))} · graph density {g["density"]:.2f} · ranking score {g["ranking_score"]:.2f} (not a probability)</p><p>'+esc(', '.join(names.get(a,a) for a in g['accounts']))+'</p>')
@@ -136,7 +150,7 @@ def render(store,cfg,now=None,result=None):
         w('</details>')
         w('<p>Review alternatives: '+esc('; '.join(g['alternatives']))+'</p></section>')
     baseline=result['baseline']
-    w(f'<div class="notice">Timing comparison: {result["recurring_edges"]} recurring edges observed; median {esc(baseline["median_edges"])} across {baseline["repeats"]} shuffled datasets. {esc(baseline["limitation"])}</div>')
+    w(f'<div class="notice">Timing comparison: {result["recurring_edges"]} recurring account pairs observed; a median of {esc(baseline["median_edges"])} across {baseline["repeats"]} shuffled copies of the data. Each copy keeps every post, its account and its UTC day, and hands the times of day out at random among the posts of that day. {esc(baseline["limitation"])}</div>')
     if any(result['limits'][k] for k in ('truncated_posts','high_volume_events_not_compared','missing_stable_id_accounts')): w('<p class="notice">Analysis limits: '+esc(json.dumps(result['limits']))+'</p>')
     amplified=A.amplified_originals(posts,store.amplifiers() if hasattr(store,'amplifiers') else {},max_event_accounts=result['settings'].get('max_event_accounts'))
     w('<h2 id="amplified">Amplified originals</h2><p>The posts in this interval that were reposted most: originals ranked by the repost count the platform returns with them, and the originals behind any reposts collected. A thousand accounts reposting one post inside an hour is coordination in the loose sense; the age and follower profile of the reposters is what separates a public from a purchase, and it needs their profiles (collected with the reposts, or sampled with <code>amplifiers</code>).</p>')
@@ -183,6 +197,7 @@ def render(store,cfg,now=None,result=None):
     near=A.paraphrase_bursts(posts[:2000],int(bc.get('paraphrase_window_minutes',60)),minimum,float(bc.get('paraphrase_threshold',.35)))
     if len(posts)>2000: w('<p class="notice">Exploratory similar-wording matches use the earliest 2,000 posts. Recurring groups use their separately stated analysis limit.</p>')
     w('<h2 id="bursts">Text and link matches</h2><p>Matching content may come from a common public source or legitimate organizing. Similar wording does not establish AI authorship.</p>')
+    w(f'<p class="muted">Settings used: Same text and Same link list at least {minimum} accounts posting the identical text or link within {window} minutes. Similar wording lists at least {minimum} accounts posting closely matching text within {int(bc.get("paraphrase_window_minutes",60))} minutes.</p>')
     for title,items,field in [('Same text',exact,'text'),('Same link',links,'link'),('Similar wording',near,'samples')]:
         w('<h3>'+title+'</h3>')
         w(_table(['Start UTC','Accounts','Query interval exhausted','Example'],[(esc(b['start']),esc(', '.join(names.get(a,a) for a in b['accounts'])), 'yes' if covers_burst(b,windows) else 'not established',esc(' / '.join(b[field]) if isinstance(b[field],list) else b[field])) for b in items[:50]]) if items else '<p>None at these settings.</p>')
@@ -193,6 +208,8 @@ def render(store,cfg,now=None,result=None):
     if x_accounts:
         profiled={p['author_id'] for p in posts if p['source']=='x' and p.get('author_created_utc')}
         if len(profiled)<len(x_accounts): w(f'<p class="muted">Author profiles are known for {len(profiled):,} of {len(x_accounts):,} X accounts in scope; the rest appear by numeric id and carry no age or audience signal. Profiles are bought separately (<code>author_profiles</code>), once per account per UTC day.</p>')
+    present=[k for k in SIGNAL_RULES if any(k in r['signals'] for r in accounts)]
+    if present: w('<details open><summary>What each signal in this table counts</summary><ul>'+''.join(f'<li><code>{k}</code>: {esc(SIGNAL_RULES[k])}</li>' for k in present)+'</ul><p class="muted">"Posts" means posts in this analysis, not everything the account has posted. Accounts with fewer than '+str(cfg.get('accounts',{}).get('min_posts',3))+' posts here are not listed.</p></details>')
     w(_table(['Account','Posts','Observed signals','Age at event','Median likes'],[(esc(r['account']+' ('+r['source']+')'),r['posts'],esc(', '.join(r['signals'])),num(r['age_days']),num(r['median_likes'])) for r in accounts]))
     hours=A.hour_comparison(posts,{r['account_id'] for r in accounts if len(r['signals'])>=2},stored_posts)
     if hours:

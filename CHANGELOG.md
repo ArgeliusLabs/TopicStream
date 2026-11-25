@@ -1,5 +1,15 @@
 # Changes
 
+## 0.3.8 (November 25, 2026)
+
+The report explains itself. Two people who had never seen the tool read its report cold; these are the places where they had to guess.
+
+- **Recurring account groups** now states the rule in words under the heading: two accounts become a pair when they post the same text, link or repost target within the window, on at least `min_episodes` occasions across at least `min_days` UTC days. The numbers come from the run's own settings.
+- **Text and link matches** states the settings each table used (accounts, minutes), so a reader can compare a table with their own count.
+- **Account observations** has a key, "What each signal in this table counts", with the threshold behind each signal that appears, and says which posts are counted. `report.SIGNAL_RULES` holds the wording; a test keeps it in step with `analyze.account_features`.
+- **Timing comparison** says "recurring account pairs" (it said "edges") and describes what a shuffled copy keeps and what it reassigns.
+- No change to collection, detection, pricing or any number in a report.
+
 ## 0.3.7 (November 25, 2026)
 
 - Explorer: the menu reads as a sentence, "Find accounts that posted: the same text (hashtags ignored) / the same text, exactly / the same link / any link containing…", and the box for the last one says what it is for (a tracking token, for example) and that no time window applies. The two tables stay side by side in a frame as narrow as 700 px.

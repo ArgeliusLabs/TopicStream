@@ -91,6 +91,20 @@ class AnalysisTests(unittest.TestCase):
             s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW), author_created_utc=p['author_created_utc'], author_followers=p['author_followers'], likes=p['likes']) for i, p in enumerate(self.posts)])
             html = R.render(s, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
             self.assertIn('Activity rules tripped', html); self.assertIn('#campaign', html); self.assertIn('site.example', html); self.assertNotIn('Traceback', html)
+    def test_report_states_its_rules(self):
+        # a reader who has only the report must be able to tell what each table and label means
+        import inspect, re
+        emitted = set(re.findall(r"sig\.append\('(\w+)'\)", inspect.getsource(A.account_features)))
+        self.assertEqual(emitted, set(R.SIGNAL_RULES))                 # every signal the code can emit has a line in the report's key, and no stale ones
+        with stored_directory() as d:
+            s = Store(Path(d) / 'x.sqlite')
+            s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW), author_created_utc=p['author_created_utc'], author_followers=p['author_followers']) for i, p in enumerate(self.posts)])
+            html = R.render(s, dict(name='t', tags=['osint'], days=7, alert={}, burst=dict(window_minutes=7, minimum=4, paraphrase_window_minutes=45)), now=NOW)
+        self.assertIn('at least 4 accounts posting the identical text or link within 7 minutes', html)
+        self.assertIn('closely matching text within 45 minutes', html)
+        self.assertIn('on at least 3 separate occasions (episodes) across at least 2 UTC days', html)
+        self.assertIn('recurring account pairs observed', html); self.assertNotIn('recurring edges observed', html)
+        self.assertIn('What each signal in this table counts', html); self.assertIn('<code>co_posted</code>', html)
 
 # Point TOPICSTREAM_SAMPLE_CSV at a posts export with the import-csv column names to run the end-to-end analysis test.
 CIAP = Path(os.environ.get('TOPICSTREAM_SAMPLE_CSV', Path(__file__).resolve().parents[2] / 'capstone/release/Evidence/1_Platform/exports/ciap_posts_2026-02-01_to_2026-03-08.csv'))

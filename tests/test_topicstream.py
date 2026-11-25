@@ -162,7 +162,8 @@ class ExplorerTests(unittest.TestCase):
             shutil.copy(ex / 'build_explorer_demo.py', Path(d) / 'build_explorer_demo.py')
             import io, contextlib
             with contextlib.redirect_stdout(io.StringIO()): runpy.run_path(str(Path(d) / 'build_explorer_demo.py'), run_name='__main__')
-            self.assertEqual((Path(d) / 'explorer-demo.csv').read_bytes(), (ex / 'explorer-demo.csv').read_bytes())
+            same = lambda p: p.read_bytes().replace(b'\r\n', b'\n')        # a Windows checkout may hold the committed file with CRLF line ends
+            self.assertEqual(same(Path(d) / 'explorer-demo.csv'), same(ex / 'explorer-demo.csv'))
 
     def test_export_marks_reposts_and_keeps_only_resolvable_reply_parents(self):
         from topicstream import export as E

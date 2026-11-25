@@ -1,7 +1,8 @@
 # Changes
 
-## Unreleased
+## 0.3.7 (November 25, 2026)
 
+- Explorer: the menu reads as a sentence, "Find accounts that posted: the same text (hashtags ignored) / the same text, exactly / the same link / any link containing…", and the box for the last one says what it is for (a tracking token, for example) and that no time window applies. The two tables stay side by side in a frame as narrow as 700 px.
 - `examples/explorer-demo.csv`: a made-up sample for the co-posting explorer (96 posts, 24 accounts), with `examples/build_explorer_demo.py`, which writes it and lists what each setting shows.
 
 ## 0.3.6 (November 25, 2026)

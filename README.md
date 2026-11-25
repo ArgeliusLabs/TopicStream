@@ -101,7 +101,7 @@ writes the posts the report analyses to a CSV (reading the local database, so it
 
 To see it move before you have data of your own, load `examples/explorer-demo.csv`, a made-up sample of 96 posts: ten accounts that post together on three days, one that is slow, one that is an hour late, two people who copied a post, two who forwarded the link later, and ordinary chatter around them. `examples/build_explorer_demo.py` writes it and says what each setting should show.
 
-On the page you say which columns hold the time, the account, the text and the link (they are guessed from the header), then move two sliders: the window in minutes and the minimum number of distinct accounts. It lists the bursts and the candidate accounts, grouped by text with hashtags removed, by exact text, by exact link, or by every account whose link contains a string you type (a tracking token, for example).
+On the page you say which columns hold the time, the account, the text and the link (they are guessed from the header), then move two sliders: the window in minutes and the minimum number of distinct accounts. It lists the bursts and the candidate accounts, for accounts that posted the same text (hashtags ignored), the same text exactly, the same link, or any link containing a string you type (a tracking token, for example).
 
 - **Pin this list**, change one setting, and the page names the accounts that joined and the accounts that left. Those accounts are the ones worth opening.
 - Click a burst to list its accounts in the order they posted.

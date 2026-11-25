@@ -10,7 +10,7 @@ p{margin:6px 0}.lead{color:var(--muted);max-width:860px}.panel{border:1px solid 
 select,input[type=text],input[type=number]{font:inherit;padding:5px 7px;border:1px solid #b9c2cf;border-radius:6px;background:#fff;min-width:150px}
 input[type=range]{width:210px;vertical-align:middle}button{font:inherit;font-weight:600;padding:6px 12px;border:1px solid var(--accent);border-radius:6px;background:#fff;color:var(--accent);cursor:pointer}
 button:hover{background:#eaf1fb}#status{font-weight:600}#status.ok{color:var(--ok)}#status.bad{color:#a11}
-#summary{font-weight:700;margin:14px 0 4px;font-size:16px}.grid{display:grid;grid-template-columns:3fr 2fr;gap:18px}@media(max-width:900px){.grid{grid-template-columns:1fr}}
+#summary{font-weight:700;margin:14px 0 4px;font-size:16px}.grid{display:grid;grid-template-columns:3fr 2fr;gap:18px}@media(max-width:980px){.grid{grid-template-columns:1.6fr 1fr;gap:12px}#bursts th:nth-child(3),#bursts td:nth-child(3),#accts th:nth-child(3),#accts td:nth-child(3){display:none}td,th{padding-left:7px;padding-right:7px}.wrap{padding-left:12px;padding-right:12px}}@media(max-width:700px){.grid{grid-template-columns:1fr}}
 .tw{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:8px}table{border-collapse:collapse;width:100%;font-size:13.5px}
 th{position:sticky;top:0;background:#eef1f5;text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px;text-transform:uppercase;letter-spacing:.4px}
 td{padding:6px 10px;border-bottom:1px solid #eef0f3;vertical-align:top}td:first-child{white-space:nowrap}td.n{text-align:right;font-variant-numeric:tabular-nums}code{background:#eef1f5;padding:1px 5px;border-radius:4px;font-size:12.5px}
@@ -33,9 +33,9 @@ td{padding:6px 10px;border-bottom:1px solid #eef0f3;vertical-align:top}td:first-
 <div class="row">
 <div><label for="win">3. Window: <b id="winV">10</b> minutes</label><input type="range" id="win" min="1" max="120" value="10"></div>
 <div><label for="min">Minimum accounts: <b id="minV">5</b></label><input type="range" id="min" min="2" max="25" value="5"></div>
-<div><label for="mode">Group by</label><select id="mode">
-<option value="text">text, hashtags removed</option><option value="exact">text, exactly as posted</option><option value="link">link, exactly as shared</option><option value="contains">any link containing… (no window)</option></select></div>
-<div id="needleBox" style="display:none"><label for="needle">Link contains</label><input type="text" id="needle" placeholder="utm_campaign=…"></div>
+<div><label for="mode">Find accounts that posted</label><select id="mode">
+<option value="text">the same text (hashtags ignored)</option><option value="exact">the same text, exactly</option><option value="link">the same link</option><option value="contains">any link containing…</option></select></div>
+<div id="needleBox" style="display:none"><label for="needle">…containing this text (a tracking token, for example)</label><input type="text" id="needle" placeholder="utm_campaign=…"><div class="small">No time window here: every account that ever shared such a link.</div></div>
 </div>
 <p class="small" style="margin-top:8px">Too narrow a window loses the account that posts late; too wide pulls in people who copied the post at lunch. Too low a minimum makes every pair of friends a burst. There is no correct setting. Press <b>Pin this list</b>, change one thing, and the page names the accounts that joined and the accounts that left. Those are the ones to go and look at. Click any burst to list its accounts in the order they posted.</p>
 </div>
@@ -48,7 +48,7 @@ td{padding:6px 10px;border-bottom:1px solid #eef0f3;vertical-align:top}td:first-
 </div>
 
 <details><summary>How it works, and what it does not tell you</summary>
-<p>Every post gets a key: its text with hashtags stripped, its exact text, or its link. Posts with the same key are sorted by time. Starting from each post in turn, the page collects every post with that key inside the window. If those posts come from at least the minimum number of different accounts, that is a burst, every account in it is a candidate, and the search continues after the burst. "Any link containing" is a different kind of rule: no window, just every account that ever shared a link with that string in it, which is how you follow a tracking token.</p>
+<p>Every post gets a key, chosen in the <em>Find accounts that posted</em> menu: its text with hashtags stripped, its exact text, or its link. Posts with the same key are sorted by time. Starting from each post in turn, the page collects every post with that key inside the window. If those posts come from at least the minimum number of different accounts, that is a burst, every account in it is a candidate, and the search continues after the burst. <em>Any link containing</em> is a different kind of rule: no window, just every account that ever shared a link with that string in it, which is how you follow a tracking token.</p>
 <p>Reposts need care. A repost carries the same text as the post it repeats, so with reposts ticked in, every popular post becomes a burst, and a wave that lasts an hour shows up as several bursts back to back; widen the window to see it as one. That view tells you which posts were amplified and by how many accounts. It says nothing about coordination by itself: a thousand strangers reposting something they like look exactly the same.</p>
 <p>A burst is a lead. People who see a post and paste it land in bursts, and a member who always posts an hour late never does. Treat the candidate list as a net: decide each account on what the account is (age, history, audience, what else it posts), and keep the people who merely agreed out of your findings. A group that posts on a published schedule is coordinated and may be entirely genuine.</p>
 <p>When you have a window and a minimum that suit your data, the same two numbers go into TopicStream's config as <code>burst.window_minutes</code> and <code>burst.minimum</code>. This page is part of TopicStream, which is free and open source under the MIT licence: <code>https://github.com/ArgeliusLabs/TopicStream</code>. From a copy of the repository, <code>python -m topicstream explorer</code> opens it. It is one file with no dependencies, so you can copy it to an offline machine by itself, and you may change it freely. To look at posts TopicStream collected, write them out with <code>python -m topicstream export-csv posts.csv --config config.json</code> and load that file here, or press <em>Explore bursts</em> on a case in the workspace, which opens this page on that case and is the only time the page asks a server for anything (your own machine).</p>
@@ -94,7 +94,7 @@ function ingest(txt,name){var nl=txt.indexOf('\n'),first=txt.slice(0,nl<0?txt.le
 function load(file){var r=new FileReader();r.onload=function(){ingest(String(r.result),file.name);};r.readAsText(file);}
 function fmt(ms){return new Date(ms).toISOString().slice(0,16).replace('T',' ');}
 function span(ms){var s=Math.round(ms/1000);return s<60?s+' s':Math.round(s/60)+' min';}
-function label(){var m=$('mode').value;return m==='contains'?'link contains "'+$('needle').value.trim()+'"':$('win').value+' min, minimum '+$('min').value+', '+$('mode').selectedOptions[0].textContent;}
+function label(){var m=$('mode').value;return m==='contains'?'any link containing "'+$('needle').value.trim()+'"':$('win').value+' min, minimum '+$('min').value+', '+$('mode').selectedOptions[0].textContent;}
 function run(){if(!data.length)return;
   var win=+$('win').value*60000,min=+$('min').value,mode=$('mode').value,needle=$('needle').value.trim();
   $('winV').textContent=$('win').value;$('minV').textContent=min;$('needleBox').style.display=mode==='contains'?'':'none';

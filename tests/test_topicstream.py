@@ -1,5 +1,5 @@
 """Offline tests. Recorded Mastodon JSON shapes for the parsers; the Day 6 Ciap export for the analysis, when present."""
-import json, os, sys, tempfile, unittest, urllib.error
+import json, os, re, sys, tempfile, unittest, urllib.error
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -105,6 +105,26 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn('on at least 3 separate occasions (episodes) across at least 2 UTC days', html)
         self.assertIn('recurring account pairs observed', html); self.assertNotIn('recurring edges observed', html)
         self.assertIn('What each signal in this table counts', html); self.assertIn('<code>co_posted</code>', html)
+    def test_report_shows_tokens_followers_and_top_accounts(self):
+        # the account facts and the shared tracking token are in the report, not only in the analysis
+        with stored_directory() as d:
+            s = Store(Path(d) / 'x.sqlite')
+            s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'],
+                              links=[l + '?utm_source=twitter&utm_campaign=zz9' for l in p['links']], collected_utc=iso(NOW), author_created_utc=p['author_created_utc'], author_followers=p['author_followers'], author_posts=41)
+                         for i, p in enumerate(self.posts)])
+            html = R.render(s, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
+        self.assertIn('Tracking tokens carried by several accounts', html)
+        token_row = re.search(r'<tr><td><span class="tok">utm_campaign=zz9</span></td><td>(\d+)</td>', html)
+        self.assertTrue(token_row, 'the campaign token has a row of its own'); self.assertEqual(int(token_row.group(1)), 6)        # six accounts link site.example in the fixture
+        self.assertNotIn('utm_source=twitter</span>', html)                                                                     # share-button boilerplate is not a token
+        self.assertIn('Top originating accounts', html); self.assertIn('<th>Followers</th><th>Median likes</th>', html)
+        self.assertIn('<th>Age at event</th><th>Followers</th><th>Lifetime posts</th><th>Median likes</th>', html)
+        self.assertIn('<td>41</td>', html)                                                                                    # the lifetime post count reaches the account table
+        with stored_directory() as d:                                                                                         # nothing to show is said plainly
+            s = Store(Path(d) / 'y.sqlite')
+            s.add_posts([Post(source='m', instance='ex', post_id=str(i), created_utc=p['created_utc'], author=p['author'], text=p['text'], matched=p['matched'], tags=p['tags'], links=p['links'], collected_utc=iso(NOW)) for i, p in enumerate(self.posts)])
+            html = R.render(s, dict(name='t', tags=['osint'], days=7, alert={}), now=NOW)
+        self.assertIn('No tracking token is carried by three or more accounts.', html)
 
 # Point TOPICSTREAM_SAMPLE_CSV at a posts export with the import-csv column names to run the end-to-end analysis test.
 CIAP = Path(os.environ.get('TOPICSTREAM_SAMPLE_CSV', Path(__file__).resolve().parents[2] / 'capstone/release/Evidence/1_Platform/exports/ciap_posts_2026-02-01_to_2026-03-08.csv'))

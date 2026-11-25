@@ -11,7 +11,7 @@ from .sources import parse_time, iso
 from . import __version__ as VERSION
 
 CSS = '''
-:root{color-scheme:dark;--bg:#111923;--panel:#18232f;--line:#344350;--muted:#a9bac8;--ink:#edf3f6;--accent:#79d3b1}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,sans-serif}main{max-width:1250px;margin:auto;padding:42px 28px}h1{font-size:34px;line-height:1.2;margin:14px 0}h2{font-size:23px;margin:36px 0 12px}h3{font-size:17px}a{color:var(--accent)}p{max-width:100ch}.muted{color:var(--muted)}.eyebrow{letter-spacing:.14em;text-transform:uppercase;font-size:12px;color:var(--accent)}.card{background:var(--panel);border:1px solid var(--line);padding:22px;border-radius:12px;margin:15px 0}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.metrics strong{display:block;font-size:28px}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}td{overflow-wrap:anywhere}code{overflow-wrap:anywhere;color:var(--accent)}.notice{border-left:3px solid var(--accent);padding:12px 18px;background:#19312e}.bars{display:flex;align-items:end;gap:4px;height:150px}.bar{background:var(--accent);min-width:4px;max-width:72px;flex:1}.post{padding:15px 0;border-bottom:1px solid var(--line);scroll-margin-top:20px}summary{cursor:pointer;color:var(--accent)}.small{font-size:12px}nav{display:flex;gap:16px;flex-wrap:wrap}@media(max-width:650px){main{padding:20px 14px}.metrics{grid-template-columns:repeat(2,1fr)}h1{font-size:27px}}
+:root{color-scheme:dark;--bg:#111923;--panel:#18232f;--line:#344350;--muted:#a9bac8;--ink:#edf3f6;--accent:#79d3b1}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,sans-serif}main{max-width:1250px;margin:auto;padding:42px 28px}h1{font-size:34px;line-height:1.2;margin:14px 0}h2{font-size:23px;margin:36px 0 12px}h3{font-size:17px}h4{font-size:14px;margin:18px 0 6px}.tok{white-space:nowrap}a{color:var(--accent)}p{max-width:100ch}.muted{color:var(--muted)}.eyebrow{letter-spacing:.14em;text-transform:uppercase;font-size:12px;color:var(--accent)}.card{background:var(--panel);border:1px solid var(--line);padding:22px;border-radius:12px;margin:15px 0}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.metrics strong{display:block;font-size:28px}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}td{overflow-wrap:anywhere}code{overflow-wrap:anywhere;color:var(--accent)}.notice{border-left:3px solid var(--accent);padding:12px 18px;background:#19312e}.bars{display:flex;align-items:end;gap:4px;height:150px}.bar{background:var(--accent);min-width:4px;max-width:72px;flex:1}.post{padding:15px 0;border-bottom:1px solid var(--line);scroll-margin-top:20px}summary{cursor:pointer;color:var(--accent)}.small{font-size:12px}nav{display:flex;gap:16px;flex-wrap:wrap}@media(max-width:650px){main{padding:20px 14px}.metrics{grid-template-columns:repeat(2,1fr)}h1{font-size:27px}}
 '''
 CSS += '''
 :root[data-theme="light"]{color-scheme:light;--bg:#f7f9fb;--panel:#fff;--line:#c6d0d8;--muted:#465865;--ink:#14222e;--accent:#14634e}
@@ -24,7 +24,7 @@ button{background:var(--panel);color:var(--ink);border:1px solid var(--line);bor
  .toolbar,nav{display:none}.scroll{overflow:visible}table{font-size:9pt}thead{display:table-header-group}
  .card{padding:10px;border-radius:0}.metrics{gap:6px}.metrics strong{font-size:18pt}
  details>*{display:block!important}details::details-content{display:block!important;content-visibility:visible!important}
- a,code,summary,.muted{color:black!important}h2,h3,summary{break-after:avoid}.post,tr{break-inside:avoid}
+ a,code,summary,.muted{color:black!important}h2,h3,h4,summary{break-after:avoid}.post,tr{break-inside:avoid}
 }
 '''
 
@@ -88,6 +88,7 @@ def activity_rules(posts, counts, stored_alerts, cfg, start, end):
 
 def esc(value): return html.escape(str(value)) if value is not None else 'Unknown'
 def num(value): return f'{value:,}' if isinstance(value,(int,float)) else 'Unknown'
+def med(value): return f'{value:g}' if isinstance(value,(int,float)) else 'Unknown'      # a median: 1 and 0.5, never 1.0
 # One line per account signal, in the order analyze.account_features applies them. Keep the two in step: tests compare them.
 SIGNAL_RULES={
  'replies':'at least 5 posts, and 8 in 10 of them are replies',
@@ -189,6 +190,11 @@ def render(store,cfg,now=None,result=None):
         series=A.daily_series(posts,tag,calendar_days,end=last_day); maximum=max([u for _,u,_ in series]+[1])
         w(f'<section class="card"><h3>{esc(tag)}</h3><div class="bars" role="img" aria-label="Observed posts per UTC day">'+''.join(f'<div class="bar" style="height:{max(1,int(145*u/maximum))}px" title="{esc(d)}: {u} posts from {a} accounts"></div>' for d,u,a in series)+'</div>')
         w(_table(['UTC day','Observed posts','Originating accounts'],[(esc(d),u,a) for d,u,a in series]))
+        top_accounts=A.top_accounts(posts,tag,top=10,now=now)
+        if top_accounts:
+            w('<h4>Top originating accounts</h4>')
+            w(_table(['Account','Posts with this tag','Share of the tag','Age at first post (days)','Followers','Median likes'],[(esc(r['account']+' ('+r['source']+')'),r['uses'],f'{r["share"]:.0%}',num(r['age_days']),num(r['followers']),med(r['median_likes'])) for r in top_accounts]))
+            w('<p class="muted">Straight counts for the accounts that used this tag most, with what the platform says about each. "Unknown" means that profile fact was not collected. Many posts, few likes and few followers on one account is ordinary. The same picture across several accounts at once is a reason to look at them, not a conclusion.</p>')
         w('<details><summary>Related hashtags and linked domains</summary>'+_table(['Hashtag','Posts','Accounts'],[(esc(c['tag']),c['count'],c['accounts']) for c in A.cooccurrence(posts,tag)])+_table(['Domain','Posts','Accounts'],[(esc(c['domain']),c['posts'],c['accounts']) for c in A.top_domains(posts,tag)])+'</details>')
         if counts: w('<details><summary>X volume per hour from the counts API</summary>'+_table(['Hour UTC','API-reported matches'],[(esc(c['start_utc']),c['uses']) for c in counts if c['tag']==tag])+'</details>')
         w('</section>')
@@ -209,8 +215,8 @@ def render(store,cfg,now=None,result=None):
         profiled={p['author_id'] for p in posts if p['source']=='x' and p.get('author_created_utc')}
         if len(profiled)<len(x_accounts): w(f'<p class="muted">Author profiles are known for {len(profiled):,} of {len(x_accounts):,} X accounts in scope; the rest appear by numeric id and carry no age or audience signal. Profiles are bought separately (<code>author_profiles</code>), once per account per UTC day.</p>')
     present=[k for k in SIGNAL_RULES if any(k in r['signals'] for r in accounts)]
-    if present: w('<details open><summary>What each signal in this table counts</summary><ul>'+''.join(f'<li><code>{k}</code>: {esc(SIGNAL_RULES[k])}</li>' for k in present)+'</ul><p class="muted">"Posts" means posts in this analysis, not everything the account has posted. Accounts with fewer than '+str(cfg.get('accounts',{}).get('min_posts',3))+' posts here are not listed.</p></details>')
-    w(_table(['Account','Posts','Observed signals','Age at event','Median likes'],[(esc(r['account']+' ('+r['source']+')'),r['posts'],esc(', '.join(r['signals'])),num(r['age_days']),num(r['median_likes'])) for r in accounts]))
+    if present: w('<details open><summary>What each signal in this table counts</summary><ul>'+''.join(f'<li><code>{k}</code>: {esc(SIGNAL_RULES[k])}</li>' for k in present)+'</ul><p class="muted">"Posts" means posts in this analysis, not everything the account has posted; "Lifetime posts" is the platform\'s own count for the account. Age is in days. Followers and lifetime posts are as reported when the profile was collected, and "Unknown" means that profile fact was not collected. Accounts with fewer than '+str(cfg.get('accounts',{}).get('min_posts',3))+' posts here are not listed.</p></details>')
+    w(_table(['Account','Posts','Observed signals','Age at event','Followers','Lifetime posts','Median likes'],[(esc(r['account']+' ('+r['source']+')'),r['posts'],esc(', '.join(r['signals'])),num(r['age_days']),num(r['followers']),num(r['total_posts']),med(r['median_likes'])) for r in accounts]))
     hours=A.hour_comparison(posts,{r['account_id'] for r in accounts if len(r['signals'])>=2},stored_posts)
     if hours:
         w('<h3>Observed posting-hour comparison</h3><p>Accounts with at least two descriptive signals: '+str(hours['selected_posts'])+' matching posts. Their tightest eight-hour band starts at '+f'{hours["band_start"]:02d}:00 UTC'+f' and contains {hours["band_share"]:.1%} of those posts. The same band contains {hours["all_share"]:.1%} of all stored posts in the interval ({hours["baseline_posts"]:,} rows), regardless of tags or other case filters, and {hours["scoped_share"]:.1%} of posts in analysis. Sampling and ordinary schedules can explain this pattern; it does not establish location, intent, or office hours.</p>')
@@ -233,8 +239,17 @@ def render(store,cfg,now=None,result=None):
         w(_table(['Query / hour','Early accounts','Posts in window'],[(esc(win['tag']+' / '+win['start_utc']),esc(', '.join(names.get(a,a) for a in edge['edge_accounts'])),edge['posts']) for win,edge in early if edge]))
     infra=A.infrastructure(posts)
     w('<h3>Shared links and related tags</h3><p>Tracking tokens and domains are leads. Ordinary copying and publisher links can produce the same pattern.</p>')
-    w(_table(['Domain','Distinct accounts'],[(esc(domain),n) for domain,n in infra['domains']]))
-    w(_table(['Candidate tag','Posts','Accounts'],[(esc(c['tag']),c['posts'],c['accounts']) for c in A.candidates(posts,tags)]))
+    w('<h4>Tracking tokens carried by several accounts</h4>')
+    if infra['params']:
+        w(_table(['Token on the shared links','Distinct accounts','Accounts'],[(' · '.join('<span class="tok">'+esc(t)+'</span>' for t in token.split(' · ')),len(accts),esc(', '.join(sorted((names.get(a,a) for a in accts),key=str.lower)[:30]))+(f' and {len(accts)-30} more' if len(accts)>30 else '')) for token,accts in infra['params']]))
+    else: w('<p>No tracking token is carried by three or more accounts.</p>')
+    w('<p class="muted">A tracking token is something a sharing or campaign tool adds to the end of a link so its owner can count clicks (<code>utm_campaign=…</code>, a referral code, a short code). Accounts that paste from one source carry the same token. So does anyone who copies or forwards one of their posts, so a shared token ties posts to one source of links and does not by itself make an account part of a group. Share-button boilerplate such as <code>utm_source=twitter</code> is left out, and tokens that always travel together are one row.</p>')
+    w('<h4>Domains and link shorteners by number of accounts</h4>')
+    domain_rows=[(esc(domain)+' (link shortener)',len(accts)) for domain,accts in infra['shorteners']]+[(esc(domain),n) for domain,n in infra['domains']]
+    w(_table(['Domain','Distinct accounts'],domain_rows) if domain_rows else '<p>No linked domain is shared by several accounts.</p>')
+    candidate_tags=A.candidates(posts,tags)
+    if candidate_tags: w('<h4>Other tags that travel with the tracked ones</h4>'+_table(['Candidate tag','Posts','Accounts'],[(esc(c['tag']),c['posts'],c['accounts']) for c in candidate_tags]))
+    else: w('<p class="muted">No untracked tag travels with the tracked ones often enough to list.</p>')
     w('<h2 id="evidence">Supporting evidence</h2>'); used={eid for g in result['groups'] for eid in g['event_ids']}; evidence_keys=set()
     for e in result['events']:
         if e['id'] not in used: continue

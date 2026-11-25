@@ -34,7 +34,7 @@ def build(data_dir):
                                       f'Harbor water briefing {day}/{episode}: read the complete assessment and evidence at our public demonstration link.',
                                       author_id=f'example-{actor}',author_created_utc=iso(start-timedelta(days=10)),
                                       author_posts=30,author_followers=12,likes=0,matched=['harbor water'],
-                                      links=[f'https://example.org/briefing/{day}/{episode}'],collected_utc=iso(end)))
+                                      links=[f'https://example.org/briefing/{day}/{episode}?utm_campaign=hw7&utm_source=hw_share'],collected_utc=iso(end)))
             for hour in range(24):
                 t=start+timedelta(days=day,hours=hour,minutes=35)
                 for i in range(3):

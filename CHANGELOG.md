@@ -1,5 +1,18 @@
 # Changes
 
+## 0.3.9 (November 25, 2026)
+
+Three panels are back in the report. They were in every version up to 0.2.5 and did not come across when the report was rebuilt around recurring groups in 0.3.0. The analysis never stopped computing them.
+
+- **Tracking tokens carried by several accounts**, under Shared links and related tags: each campaign or referral token found on the links in the posts (`utm_campaign=…`, a referral code, a short code), how many distinct accounts carry it, and which. Share-button boilerplate is left out and tokens that always travel together are one row, as before. The note under the table says what a shared token does and does not show: it ties posts to one source of links, and anyone who copies or forwards a post carries the token along.
+- **Top originating accounts**, in each tag's card: the ten accounts that used the tag most, with posts, share of the tag, age at first post, followers and median likes.
+- **Followers and Lifetime posts** columns in Account observations, beside each account's signals, so the facts behind `no_audience` and `low_lifetime_activity` are on the page.
+- Medians print as 1 or 0.5, not 1.0.
+- Where a section has nothing to list (no shared domain, no candidate tag), the report says so in a sentence in place of an empty table.
+- `examples/build_report_demo.py`: the demo links carry a made-up token, so the demo report shows the table. `docs/report-examples.md` has two new screenshots.
+- None of this makes a request or costs anything: the tokens come from links already collected and the account facts from profiles already held. "Unknown" is shown where a profile was not collected.
+- No change to collection, detection, pricing, or any existing number in a report.
+
 ## 0.3.8 (November 25, 2026)
 
 The report explains itself. Two people who had never seen the tool read its report cold; these are the places where they had to guess.

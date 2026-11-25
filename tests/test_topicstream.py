@@ -154,7 +154,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn('<td>#campaign</td><td>60</td><td>6</td><td>10.0</td><td>#osint</td>', html)
         self.assertIn('<th>Start UTC</th><th>Accounts</th><th>Posts</th><th>Which accounts</th><th>Query interval exhausted</th><th>Example</th>', html)
         same_text = html[html.index('<h3>Same text</h3>'):html.index('<h3>Same link</h3>')]
-        rows = re.findall(r'<tr><td>[^<]*</td><td>(\d+)</td><td>(\d+)</td><td>([^<]*)</td>', same_text); self.assertTrue(rows)
+        rows = re.findall(r'<tr><td><span class="tok">[^<]*</span></td><td>(\d+)</td><td>(\d+)</td><td>([^<]*)</td>', same_text); self.assertTrue(rows)                 # the start time is kept on one line
         for accounts, uses, listed in rows: self.assertEqual(int(accounts), listed.count(', ') + 1); self.assertGreaterEqual(int(uses), int(accounts))            # the count is the number of names beside it
         if '<h3>Similar wording</h3><div' in html: self.assertIn('<th>Posts</th><th>Wordings</th><th>Largest identical group</th><th>Which accounts</th>', html)
         self.assertIn('<th>Creation week</th><th>Matched accounts</th><th>Share of matched</th><th>All observed accounts</th><th>Share of all</th><th>Relative share</th>', html)

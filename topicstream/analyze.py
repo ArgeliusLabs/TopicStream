@@ -98,6 +98,10 @@ def top_accounts(posts, tag, top=15, now=None):
                         followers=ps[0]['author_followers'], median_likes=statistics.median(likes) if likes else None, first=min(p['created_utc'] for p in ps)))
     return out
 
+def _cut(text, width):
+    """An example shortened for a table says so: an ellipsis where it was cut, so a clipped hashtag is not read as a different one."""
+    return text if len(text) <= width else text[:width].rstrip() + '…'
+
 def _norm_text(s):
     s = re.sub(r'https?://\S+', '', s); s = re.sub(r'#\w+', '', s); s = re.sub(r'@\S+', '', s); return re.sub(r'\s+', ' ', s).strip().lower()
 
@@ -115,7 +119,7 @@ def bursts(posts, window_min=10, minimum=3, min_chars=40):
         while i < len(rows):
             inside = [r for r in rows if rows[i][0] <= r[0] <= rows[i][0] + W]; accounts = {r[1] for r in inside}
             if len(accounts) >= minimum:
-                out.append(dict(start=inside[0][2]['created_utc'], end=inside[-1][2]['created_utc'], post_keys=[post_key(r[2]) for r in inside], matched=sorted({t for r in inside for t in r[2]['matched']}), accounts=sorted(accounts), uses=len(inside), text=inside[0][2]['text'][:160], sources=sorted({r[2]['source'] for r in inside})))
+                out.append(dict(start=inside[0][2]['created_utc'], end=inside[-1][2]['created_utc'], post_keys=[post_key(r[2]) for r in inside], matched=sorted({t for r in inside for t in r[2]['matched']}), accounts=sorted(accounts), uses=len(inside), text=_cut(inside[0][2]['text'], 160), sources=sorted({r[2]['source'] for r in inside})))
                 i += len(inside)
             else: i += 1
     return sorted(out, key=lambda b: -len(b['accounts']))
@@ -214,7 +218,7 @@ def _distinct_samples(posts, n=3, width=140):
     seen = collections.Counter(_norm_text(p['text']) for p in posts); out = []; done = set()
     for key, _ in seen.most_common():
         if key in done: continue
-        done.add(key); out.append(next(p['text'] for p in posts if _norm_text(p['text']) == key)[:width])
+        done.add(key); out.append(_cut(next(p['text'] for p in posts if _norm_text(p['text']) == key), width))
         if len(out) >= n: break
     return out
 

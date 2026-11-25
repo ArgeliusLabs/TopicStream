@@ -90,6 +90,7 @@ def activity_rules(posts, counts, stored_alerts, cfg, start, end):
 
 def esc(value): return html.escape(str(value)) if value is not None else 'Unknown'
 def num(value): return f'{value:,}' if isinstance(value,(int,float)) else 'Unknown'
+def stamp(value): return '<span class="tok">'+esc(value)+'</span>'      # a timestamp stays on one line however narrow its column
 def med(value): return f'{value:g}' if isinstance(value,(int,float)) else 'Unknown'      # a median: 1 and 0.5, never 1.0
 # One line per account signal, in the order analyze.account_features applies them. Keep the two in step: tests compare them.
 SIGNAL_RULES={
@@ -140,7 +141,7 @@ def render(store,cfg,now=None,result=None):
     w(f'<p><strong>{len(posts):,} of {len(stored_posts):,} stored rows in the interval are included in analysis.</strong> {matching:,} match the case tags or terms before language and exclusion filters. Rows outside the interval are not counted here.</p>')
     alerts=activity_rules(posts,counts,store.monitor_alerts(),cfg,start,end)
     w('<h2 id="activity-alerts">Activity rules tripped</h2><p>Volume and concentration alerts are investigation leads, not a CIB verdict. Retrospective sliding windows use a full-period baseline; live rules use preceding observed intervals.</p>')
-    w(_table(['Source / query','First window UTC','Posts or API matches','Accounts','Reasons / rule'],[(esc(a['source']+' / '+a['tag']),esc(a['start'])+f' · {a["minutes"]} min',a['uses'],num(a['accounts']),esc('; '.join(a['reasons']))+'<br><span class="muted">'+esc(a['origin'])+'</span>') for a in alerts]) if alerts else '<p>No activity rule tripped at the configured thresholds.</p>')
+    w(_table(['Source / query','First window UTC','Posts or API matches','Accounts','Reasons / rule'],[(esc(a['source']+' / '+a['tag']),stamp(a['start'])+f' · <span class="tok">{a["minutes"]} min</span>',a['uses'],num(a['accounts']),esc('; '.join(a['reasons']))+'<br><span class="muted">'+esc(a['origin'])+'</span>') for a in alerts]) if alerts else '<p>No activity rule tripped at the configured thresholds.</p>')
     w('<div class="metrics">'+''.join(f'<div class="card"><strong>{esc(v)}</strong>{esc(k)}</div>' for k,v in [('Rows in analysis / interval',f'{len(posts):,} / {len(stored_posts):,}'),('Distinct accounts',len(names)),('Recurring groups',len(result['groups'])),('Local estimate / reserved',f'${store.spent():.4f}')])+'</div>')
     st=result['settings']
     w('<h2 id="groups">Recurring account groups</h2>')
@@ -167,7 +168,7 @@ def render(store,cfg,now=None,result=None):
             return (f'{c["known"]:,} profiles: median age {c["median_age_days"]:,} days, median followers {num(c["median_followers"])}, '
                     f'{c["under_30_days"]} under 30 days ({c["under_30_share"]:.0%}), {c["zero_followers"]} with no followers'+(f' · {r["sampled"]} sampled' if r['sampled'] else ''))
         w(_table(['Original','Platform reposts','Captured here','Reposting accounts','Hours','Reposter profile'],
-                 [(esc('@'+(r['author'] or 'unknown'))+': '+esc(r['text'][:110])+(' <span class="muted">(outside the detector\'s comparison limit)</span>' if r['skipped_by_detector'] else ''),num(r['total']),r['captured'],r['accounts'],r['hours'],cohort_cell(r)) for r in amplified]))
+                 [(esc('@'+(r['author'] or 'unknown'))+': '+esc(A._cut(r['text'],110))+(' <span class="muted">(outside the detector\'s comparison limit)</span>' if r['skipped_by_detector'] else ''),num(r['total']),r['captured'],r['accounts'],r['hours'],cohort_cell(r)) for r in amplified]))
     else: w('<p>No reposted originals in scope at these settings.</p>')
     samples=store.amplifier_samples() if hasattr(store,'amplifier_samples') else []
     if samples: w('<p class="muted small">Sampled reposters: '+esc('; '.join(f'post {s["post_id"]}: {s["returned"]} of {s["requested"]} asked ({s["fetched_utc"]})' for s in samples))+'. A sample is the provider\'s newest reposters first, not a random draw.</p>')
@@ -186,7 +187,7 @@ def render(store,cfg,now=None,result=None):
         inside_window={(r['source'],r['tag'],r['start_utc']):A.leading_edge(posts,r) for r in windows}
         def window_accounts(r,key):
             found=inside_window.get((r['source'],r['tag'],r['start_utc'])); return (found[key] if key=='accounts' else f'{found[key]:.1f}') if found else 'none stored'
-        w(_table(['Query','Hour UTC','Status','Counts said','Returned','Accounts','Posts per account','Stop reason'],[(esc(r['tag']),esc(r['start_utc']),esc(r['status']),num(r['expected']),r['got'],window_accounts(r,'accounts'),window_accounts(r,'per_account'),esc(r['stop_reason'])) for r in windows]))
+        w(_table(['Query','Hour UTC','Status','Counts said','Returned','Accounts','Posts per account','Stop reason'],[(esc(r['tag']),stamp(r['start_utc']),esc(r['status']),num(r['expected']),r['got'],window_accounts(r,'accounts'),window_accounts(r,'per_account'),esc(r['stop_reason'])) for r in windows]))
         w('<p class="muted">Accounts and Posts per account count the posts in analysis that fall inside each hour: 200 posts from 190 accounts and 200 posts from 19 are different hours.</p>')
         originals_only=[c for c in coverage if c.get('sampling','').startswith('originals')]
         if originals_only: w('<p class="muted small">Windows read with reposts excluded (<code>-is:retweet</code>) return the originals and replies of the hour; "Counts said" still counts reposts, so the two columns differ by design.</p>')
@@ -244,7 +245,7 @@ def render(store,cfg,now=None,result=None):
         w('<h3>'+title+'</h3>')
         wording=field=='samples'
         w(_table(['Start UTC','Accounts','Posts']+(['Wordings','Largest identical group'] if wording else [])+['Which accounts','Query interval exhausted','Example'],
-                 [tuple([esc(b['start']),len(b['accounts']),b['uses']]+([b['variants'],b['exact']] if wording else [])+[esc(', '.join(names.get(a,a) for a in b['accounts'])),'yes' if covers_burst(b,windows) else 'not established',esc(' / '.join(b[field]) if isinstance(b[field],list) else b[field])]) for b in items[:50]]) if items else '<p>None at these settings.</p>')
+                 [tuple([stamp(b['start']),len(b['accounts']),b['uses']]+([b['variants'],b['exact']] if wording else [])+[esc(', '.join(names.get(a,a) for a in b['accounts'])),'yes' if covers_burst(b,windows) else 'not established',esc(' / '.join(b[field]) if isinstance(b[field],list) else b[field])]) for b in items[:50]]) if items else '<p>None at these settings.</p>')
     if near: w('<p class="muted">Under Similar wording, Wordings is how many distinct texts the match holds and Largest identical group is how many of its posts share one exact text.</p>')
     burst_accounts={a for b in exact+links+near for a in b['accounts']}
     accounts=A.account_features(posts,now=now,burst_accounts=burst_accounts,min_posts=cfg.get('accounts',{}).get('min_posts',3),top=cfg.get('accounts',{}).get('top',40))
@@ -288,7 +289,7 @@ def render(store,cfg,now=None,result=None):
     cross=A.cross_platform(posts)
     if cross:
         w('<h3>Cross-platform matches</h3><p>Matching posts do not establish that accounts on different platforms belong to the same person.</p>')
-        w(_table(['Time UTC','Type','Sources','Posts','Accounts','Match'],[(esc(c['start']),esc(c['kind']),esc(', '.join(c['sources'])),c['posts'],len(c['accounts']),esc(c['key'])) for c in cross]))
+        w(_table(['Time UTC','Type','Sources','Posts','Accounts','Match'],[(stamp(c['start']),esc(c['kind']),esc(', '.join(c['sources'])),c['posts'],len(c['accounts']),esc(c['key'])) for c in cross]))
     early=[(win,A.leading_edge(posts,win)) for win in windows if win['status']=='exhausted']
     if any(edge for _,edge in early):
         w('<h3>Early observed participants in exhausted query windows</h3><p>This is relative timing in collected evidence, not identification of who originated a narrative.</p>')
@@ -317,6 +318,6 @@ def render(store,cfg,now=None,result=None):
         w(f'<details class="post" id="post-{esc(post_key(post))}"><summary>{esc(post["author"])} · {esc(post["source"])} · {esc(post["created_utc"])}</summary><div class="muted small">{_link(post.get("url"),post_key(post))}</div><p>{esc(post["text"])}</p><p>'+', '.join(_link(url,url) for url in post['links'])+'</p></details>')
     w('</details>')
     w('<h2>Run details</h2><p>Dataset hash: <code>'+esc(result['dataset_hash'])+'</code></p><p>Detector: '+esc(result['version'])+' · configuration: <code>'+esc(json.dumps(result['settings'],sort_keys=True))+'</code></p><p>Configured X prices are estimates. The request ledger retains unresolved reservations after interrupted calls and does not promise provider-level billing accuracy.</p>')
-    w(_table(['Started','Finished','Notes'],[(esc(r['started_utc']),esc(r['finished_utc']),esc(r['notes'])) for r in store.runs()[-10:]]))
+    w(_table(['Started','Finished','Notes'],[(stamp(r['started_utc']),stamp(r['finished_utc']),esc(r['notes'])) for r in store.runs()[-10:]]))
     w(f'<p class="muted small">Generated by TopicStream {esc(VERSION)} · {esc(iso(now))}. Findings apply only to the stated queries, period, and collected evidence.</p></main>{SCRIPT}</body></html>')
     return ''.join(out)

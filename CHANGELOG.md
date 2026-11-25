@@ -1,5 +1,11 @@
 # Changes
 
+## 0.3.12 (November 25, 2026)
+
+- Timestamps in the report's tables stay on one line. With the columns 0.3.11 added, the start time in the match tables was being broken across three lines (`2026-02-` / `03T02:47` / `:12Z`). Same fix for the activity rules, purchased windows, cross-platform matches and run details.
+- An example text that is shortened for a table ends with an ellipsis, so a clipped hashtag (`#TelukRaw` for `#TelukRawah`) is not read as a different tag.
+- No change to any number.
+
 ## 0.3.11 (November 25, 2026)
 
 The rest of what the report showed up to 0.2.5 is back. A 0.2.5 report and a current one were rendered on the same data and compared panel by panel and column by column; everything below was still being computed and no longer printed.

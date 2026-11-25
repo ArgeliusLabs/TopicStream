@@ -1,5 +1,20 @@
 # Changes
 
+## 0.3.14 (November 25, 2026)
+
+Three small things in the co-posting explorer, found by first-time readers working a classroom case:
+
+- **Any link containing…** ignores capitals. A token typed as `utm_campaign=RS9` now finds links that carry `utm_campaign=rs9`; it used to find none.
+- When most rows of a file have a time the page cannot read, the totals line says why: the file has probably been saved from a spreadsheet, which rewrites the times. It used to say only how many rows were left out, under "0 bursts".
+- **Copy list** confirms what it copied ("Copied 23 names").
+
+And two descriptions:
+
+- `estimate` says its figure is one collection of the config over its configured days, not a daily figure.
+- `--help` says that `--accounts` also works with `export-csv`.
+
+No change to any number in a report.
+
 ## 0.3.13 (November 25, 2026)
 
 - **Text and link matches** says how texts are compared: hashtags, links and mentions are taken out and capitals ignored, and reposts are left out. A reader who had never seen the tool found thirteen "identical" posts ending in three different sets of hashtags and could not tell why they matched.

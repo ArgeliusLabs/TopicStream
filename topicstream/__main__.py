@@ -298,7 +298,7 @@ def estimate(cfg,log=print):
             author_profiles=xcfg.get('author_profiles','lazy'),reposts=xcfg.get('reposts','exclude'))
         log(f'Configured price estimates: {x.prices}; verify against your provider account. Ledger reserved/spent: ${store.spent():.4f}')
         log(x.pricing_note())
-        log(f'Approximate capped run: ${x.estimate(cfg["tags"],cfg["terms"],int(cfg.get("days",7))):.4f}. Paid probes obey budget_usd.')
+        log(f'Approximate capped run (one collection of this config over its {int(cfg.get("days",7))} days, not a daily figure): ${x.estimate(cfg["tags"],cfg["terms"],int(cfg.get("days",7))):.4f}. Paid probes obey budget_usd.')
         if not x.available(): return
         now=utcnow(); since,until=collection_bounds(cfg,now); x.until=until
         from .sources import queries
@@ -348,7 +348,7 @@ def main(argv=None):
     ap.add_argument('command', choices=['serve', 'collect', 'report', 'run', 'watch', 'import-csv', 'estimate', 'usage', 'discover', 'peak', 'profiles', 'amplifiers', 'export-csv', 'explorer'])
     ap.add_argument('path', nargs='?', help='import-csv: the CSV to read; export-csv: the CSV to write')
     ap.add_argument('--config', default='config.json'); ap.add_argument('--every', type=int, default=15, help='minutes between collections in watch mode')
-    ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--accounts', help='import-csv: a profiles CSV (handle, created_utc, followers, posts_total) to fill account age, followers and lifetime posts'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
+    ap.add_argument('--source', default='import', help='source label for import-csv'); ap.add_argument('--accounts', help='import-csv: a profiles CSV (handle, created_utc, followers, posts_total) to fill account age, followers and lifetime posts; export-csv: also write the stored profiles to this file'); ap.add_argument('--add', type=int, default=0, help='discover: append the top N candidates to the config')
     ap.add_argument('--hours', type=int, default=1, help='peak: how many of the busiest hours per term to read with recorded coverage'); ap.add_argument('--at', help='peak: one specific hour, e.g. 2026-10-21T14:00')
     ap.add_argument('--tag', help='peak: only this term (as the report labels it, e.g. #php2shell or php2shell)'); ap.add_argument('--dry-run', action='store_true', help='peak, profiles, amplifiers: show the plan and cost, buy nothing; explorer: print the path of the page without opening a browser')
     ap.add_argument('--sample', type=int, help='peak: read only the first N posts of each hour (recorded as a sample); amplifiers: how many reposters to sample (default 100)')

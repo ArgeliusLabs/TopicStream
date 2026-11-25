@@ -105,7 +105,7 @@ function run(){if(!data.length)return;
     rows.push({t:t,h:String(r[ca]||'').trim(),text:String(r[cx]||''),link:cl>=0?String(r[cl]||'').trim():''});});
   var bursts=[],cand={},first={};
   function seen(h,t){cand[h]=(cand[h]||0)+1;if(!(h in first)||t<first[h])first[h]=t;}
-  if(mode==='contains'){if(needle)rows.forEach(function(p){if(p.link.indexOf(needle)>=0)seen(p.h,p.t);});}
+  if(mode==='contains'){var nl=needle.toLowerCase();if(needle)rows.forEach(function(p){if(p.link.toLowerCase().indexOf(nl)>=0)seen(p.h,p.t);});}
   else{var groups={};rows.forEach(function(p){var k=mode==='text'?p.text.replace(/\s*#[\wÀ-￿]+/g,'').trim():mode==='exact'?p.text.trim():p.link;if(!k)return;(groups[k]=groups[k]||[]).push(p);});
     Object.keys(groups).forEach(function(k){var g=groups[k].sort(function(a,b){return a.t-b.t;}),i=0;
       while(i<g.length){var inside=[];for(var j=i;j<g.length&&g[j].t<=g[i].t+win;j++)inside.push(g[j]);
@@ -119,7 +119,7 @@ function run(){if(!data.length)return;
   document.querySelector('#accts tbody').innerHTML=names.map(function(h){return '<tr><td><code>'+esc(h)+'</code>'+(pinned&&!pinned.set[h]?' <span class="tag">joined</span>':'')+'</td><td class="n">'+cand[h]+'</td><td>'+fmt(first[h])+'</td></tr>';}).join('');
   document.querySelector('#accts th:nth-child(2)').textContent=mode==='contains'?'Posts':'Bursts';
   $('summary').textContent=mode==='contains'?(needle?names.length+' accounts shared a link containing "'+needle+'" (no window applies).':'Type the string to look for in the link.')
-    :bursts.length+' burst'+(bursts.length===1?'':'s')+', '+names.length+' candidate account'+(names.length===1?'':'s')+' at '+$('win').value+' minutes and a minimum of '+min+'.'+(bad?' ('+bad+' rows had a time this page could not read and were left out.)':'');
+    :bursts.length+' burst'+(bursts.length===1?'':'s')+', '+names.length+' candidate account'+(names.length===1?'':'s')+' at '+$('win').value+' minutes and a minimum of '+min+'.'+(bad?' ('+bad+' rows had a time this page could not read and were left out.'+(bad>rows.length?' That is most of the file. It has probably been saved from a spreadsheet, which rewrites the times: load the original export.':'')+')':'');
   $('diff').innerHTML=pinned?'<b>Against the pinned list</b> ('+esc(pinned.label)+', '+Object.keys(pinned.set).length+' accounts): '
     +(joined.length?joined.length+' joined: '+some(joined):'none joined')+'; '+(left.length?left.length+' left: '+some(left):'none left')+'.':'';
   $('unpin').style.display=pinned?'':'none';
@@ -131,7 +131,7 @@ $('unpin').addEventListener('click',function(){pinned=null;run();});
 document.querySelector('#bursts tbody').addEventListener('click',function(e){var tr=e.target.closest('tr.b');if(!tr)return;var nx=tr.nextElementSibling;
   if(nx&&nx.className==='members'){nx.remove();return;}var b=lastBursts[+tr.dataset.i],hs=Object.keys(b.acc).sort(function(x,y){return b.acc[x]-b.acc[y];});
   var m=document.createElement('tr');m.className='members';m.innerHTML='<td colspan="5">'+hs.slice(0,SHOW).map(function(h){return '<code>'+esc(h)+'</code> <span class="small">+'+span(b.acc[h]-b.t)+'</span>';}).join(' &nbsp; ')+(hs.length>SHOW?' &nbsp; <span class="small">and '+(hs.length-SHOW)+' more, in the order they posted</span>':'')+'</td>';tr.after(m);});
-$('copy').addEventListener('click',function(){var t=last.names.join('\n');if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(t);else{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');}catch(e){}a.remove();}});
+$('copy').addEventListener('click',function(){var t=last.names.join('\n');if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(t);else{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');}catch(e){}a.remove();}var b=this;if(!b.dataset.label)b.dataset.label=b.textContent;b.textContent='Copied '+last.names.length+' name'+(last.names.length===1?'':'s');clearTimeout(b._t);b._t=setTimeout(function(){b.textContent=b.dataset.label;},1600);});
 $('dl').addEventListener('click',function(){var lines=['account,count,first_utc'].concat(last.names.map(function(h){return '"'+h.replace(/"/g,'""')+'",'+last.cand[h]+','+new Date(last.first[h]).toISOString();}));
   var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\r\n')],{type:'text/csv'}));a.download='coposting_candidates.csv';document.body.appendChild(a);a.click();a.remove();});
 // Inside the TopicStream workspace (and only there) a case can be opened directly: /explorer?case=<id> reads that case's posts from the local server.

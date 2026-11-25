@@ -230,6 +230,8 @@ class ExplorerTests(unittest.TestCase):
         self.assertIn('Co-posting explorer', html)
         self.assertEqual(len(re.findall(r'<script>', html)), 1)                      # the workspace allows exactly one inline script, by hash
         self.assertNotRegex(html.replace('https://github.com/ArgeliusLabs/TopicStream', ''), r'https?://|src=|@import')   # no external scripts, fonts or calls
+        # 0.3.14: the link search ignores capitals, a file saved from a spreadsheet is explained, and Copy list says that it copied
+        self.assertIn('p.link.toLowerCase().indexOf(nl)', html); self.assertIn('saved from a spreadsheet, which rewrites the times', html); self.assertIn("'Copied '+last.names.length", html)
         out = io.StringIO()
         with contextlib.redirect_stdout(out): main(['explorer', '--dry-run'])
         self.assertEqual(Path(out.getvalue().strip()), page)
